@@ -33,25 +33,45 @@ The health response should show `metaTokenConfigured: true` and `loginConfigured
 
 ## 4. Add the domain to the existing proxy
 
-Your proxy config is `/home/ultex/ultex_workflow/infra/nginx-prod.conf`. Append the contents of `deploy/reports-http.conf` to it; do **not** replace the existing blocks. This block serves the ACME challenge from `/var/www/certbot` and redirects other HTTP traffic to HTTPS. The challenge directory must be the same shared webroot used by your existing certificate process.
+Your proxy config is `/home/ultex/ultex_workflow/infra/nginx-prod.conf`. Its container already mounts `/home/ultex/ultex_workflow/infra/ssl` at `/etc/nginx/ssl` and host `/etc/letsencrypt` at the same path in the container. It does **not** mount `/var/www/certbot`. Create the challenge directory on the host:
 
-Check and reload the existing proxy:
+```bash
+mkdir -p /home/ultex/ultex_workflow/infra/ssl/acme-webroot/.well-known/acme-challenge
+```
+
+Append only `deploy/reports-http.conf` to the existing Nginx config. Its challenge location uses `/etc/nginx/ssl/acme-webroot` inside the proxy. Do not add the HTTPS block yet. Test and reload:
 
 ```bash
 docker exec ultex_workflow-nginx-proxy-1 nginx -t
 docker exec ultex_workflow-nginx-proxy-1 nginx -s reload
 ```
 
-Issue a certificate for `reports.ultex.ma` with your existing Certbot/ACME process using that shared webroot. The TLS block cannot be loaded before these files exist in the proxy container:
+Check that the public challenge URL reaches the shared directory:
 
-```text
-/etc/letsencrypt/live/reports.ultex.ma/fullchain.pem
-/etc/letsencrypt/live/reports.ultex.ma/privkey.pem
+```bash
+printf 'ok\n' > /home/ultex/ultex_workflow/infra/ssl/acme-webroot/.well-known/acme-challenge/check
+curl -fsS http://reports.ultex.ma/.well-known/acme-challenge/check
 ```
 
-Then append `deploy/reports-https.conf` to the same proxy config, test and reload it again. The TLS block forwards every path to the Ulting frontend on port 8310. Ulting's own Nginx sends `/api/` to FastAPI without the `/api/v1/` rewrite used by your workflow app. Both proxy layers disable response buffering so the Strategist stream reaches the browser as it is produced.
+The response must be `ok`. Then issue the certificate without interrupting the running proxy:
 
-If the proxy's Certbot setup does not use `/var/www/certbot`, change the HTTP snippet to the actual shared challenge path before issuing the certificate. Keep the certificate paths in the TLS snippet aligned with your ACME client.
+```bash
+docker run --rm -it --name ult-certbot \
+  -v /etc/letsencrypt:/etc/letsencrypt \
+  -v /var/lib/letsencrypt:/var/lib/letsencrypt \
+  -v /home/ultex/ultex_workflow/infra/ssl/acme-webroot:/var/www/certbot \
+  certbot/certbot certonly --webroot -w /var/www/certbot -d reports.ultex.ma
+```
+
+Follow the Certbot prompts for a contact email and terms. Certbot stores the certificate in host `/etc/letsencrypt`, which the proxy already mounts. Check that the proxy can see both files:
+
+```bash
+docker exec ultex_workflow-nginx-proxy-1 ls -l /etc/letsencrypt/live/reports.ultex.ma/
+```
+
+Only now append `deploy/reports-https.conf` to `nginx-prod.conf`, then test and reload the proxy again. The TLS block forwards every path to the Ulting frontend on port 8310. Ulting's own Nginx sends `/api/` to FastAPI without the workflow app's `/api/v1/` rewrite. Both proxy layers disable response buffering for the Strategist stream.
+
+Set up renewal using the same three volume mounts and `certbot/certbot renew`, followed by a proxy reload after a successful renewal. Check whether the server already has a Certbot timer or renewal job before adding another.
 
 ## 5. Verify after HTTPS is live
 
