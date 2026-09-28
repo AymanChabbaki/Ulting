@@ -1,0 +1,1 @@
+Please never push or commit and never run the project by yourself always ask me if u want to run the project

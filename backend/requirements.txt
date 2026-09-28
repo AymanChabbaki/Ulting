@@ -1,0 +1,9 @@
+fastapi>=0.118
+uvicorn[standard]>=0.34
+httpx>=0.28
+pydantic>=2.11
+pydantic-settings>=2.8
+PyJWT>=2.10
+bcrypt>=4.2
+openai==3.19.2
+pillow>=10
