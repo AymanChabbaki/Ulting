@@ -73,6 +73,14 @@ Only now append `deploy/reports-https.conf` to `nginx-prod.conf`, then test and 
 
 Set up renewal using the same three volume mounts and `certbot/certbot renew`, followed by a proxy reload after a successful renewal. Check whether the server already has a Certbot timer or renewal job before adding another.
 
+## Brand files and image quality
+
+`brand/` is bind-mounted read-only into the backend, so you can edit `brand/persona.md` or replace `brand/logo.jpeg` on the server and the next generation picks it up — no rebuild, no restart. The first file in `brand/` (alphabetically) is the default logo. The background-removed version is cached under `/data/logo-cache` and regenerated automatically when the file changes.
+
+For the best logo fidelity, put a high-resolution PNG of the logo in `brand/` (2000px wide or more, or a PNG exported from the vector original). The current `logo.jpeg` is 770px wide, so the "Universal Logistics & Trade Experts" tagline is only about 6px tall in the source — no model or overlay can render it sharper than that.
+
+Image generation defaults to `gpt-image-2.5-flare` at quality `max`, the only model family whose quality goes above `high`. Override with `OPENAI_IMAGE_MODEL` in `.env.local`. Max-quality images can take a minute or more; both proxy layers allow 300 seconds.
+
 ## 5. Verify after HTTPS is live
 
 ```bash

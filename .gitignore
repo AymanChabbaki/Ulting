@@ -11,3 +11,7 @@ venv/
 .pytest_cache/
 generated/
 backend/generated/
+# Cut-out logos, regenerated from brand/ on demand
+backend/logo-cache/
+# Saved strategist chats (local dev; in Docker they live in the /data volume)
+backend/chats/

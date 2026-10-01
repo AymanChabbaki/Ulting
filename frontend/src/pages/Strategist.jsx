@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Bot, Loader, Square, User, Wrench } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowUp, Bot, Loader, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Pencil,
+  Square, Trash2, User, Wrench,
+} from "lucide-react";
 
 import { useAudit } from "../App.jsx";
 import { windowQuery } from "../lib/api.js";
@@ -11,10 +14,10 @@ import { windowQuery } from "../lib/api.js";
  * often spends 10-20 seconds reading placements and ad sets before it writes
  * anything, and a bare spinner for that long reads as broken.
  *
- * The transcript lives in component state only. It is deliberately not
- * persisted: the answers are tied to one reporting window, and showing
- * yesterday's conclusions against today's numbers would be worse than losing
- * them.
+ * Conversations are saved on the server (one per chat, per account) as each
+ * answer streams, so they survive a refresh or another device. Every chat
+ * keeps the reporting window it was started on, and an older chat says so --
+ * its conclusions are about those numbers, not whatever is on screen now.
  */
 
 const TOOL_LABEL = {
@@ -34,6 +37,12 @@ export default function Strategist() {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
+  const [chatId, setChatId] = useState(null);
+  const [chatMeta, setChatMeta] = useState(null);
+  const [chats, setChats] = useState([]);
+  const [showHistory, setShowHistory] = useState(() => {
+    try { return localStorage.getItem("strategist.history") !== "closed"; } catch { return true; }
+  });
 
   const abortRef = useRef(null);
   const endRef = useRef(null);
@@ -47,6 +56,74 @@ export default function Strategist() {
       .then((r) => setSuggestions(r.suggestions || []))
       .catch(() => {});
   }, [accountId]);
+
+  const loadChats = useCallback(() => {
+    fetch(`/api/strategy/chats?account_id=${encodeURIComponent(accountId)}`, { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((r) => setChats(r.chats || []))
+      .catch(() => {});
+  }, [accountId]);
+
+  // A chat belongs to one account: switching account starts a fresh one.
+  useEffect(() => {
+    loadChats();
+    setChatId(null);
+    setChatMeta(null);
+    setMessages([]);
+    setError(null);
+  }, [loadChats]);
+
+  function toggleHistory() {
+    setShowHistory((open) => {
+      try { localStorage.setItem("strategist.history", open ? "closed" : "open"); } catch { /* private mode */ }
+      return !open;
+    });
+  }
+
+  function newChat() {
+    abortRef.current?.abort();
+    setChatId(null);
+    setChatMeta(null);
+    setMessages([]);
+    setError(null);
+    setInput("");
+  }
+
+  async function openChat(id) {
+    if (id === chatId) return;
+    abortRef.current?.abort();
+    setError(null);
+    try {
+      const r = await fetch(`/api/strategy/chats/${id}`, { credentials: "same-origin" });
+      if (!r.ok) throw new Error("This chat could not be opened");
+      const chat = await r.json();
+      setChatId(chat.id);
+      setChatMeta({ windowLabel: chat.windowLabel, createdAt: chat.createdAt });
+      setMessages(chat.messages || []);
+    } catch (cause) {
+      setError(cause.message);
+    }
+  }
+
+  async function renameChat(chat) {
+    const title = window.prompt("Rename chat", chat.title);
+    if (!title?.trim() || title === chat.title) return;
+    await fetch(`/api/strategy/chats/${chat.id}`, {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim() }),
+    }).catch(() => {});
+    loadChats();
+  }
+
+  async function removeChat(chat) {
+    if (!window.confirm(`Delete "${chat.title}"? This cannot be undone.`)) return;
+    await fetch(`/api/strategy/chats/${chat.id}`, { method: "DELETE", credentials: "same-origin" })
+      .catch(() => {});
+    if (chat.id === chatId) newChat();
+    loadChats();
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -80,7 +157,10 @@ export default function Strategist() {
         signal: controller.signal,
         body: JSON.stringify({
           account_id: accountId,
-          messages: next,
+          chat_id: chatId,
+          // Only role and content go back; an answer stopped before any text
+          // is kept in the saved chat but has nothing to resend.
+          messages: next.filter((m) => m.content).map(({ role, content }) => ({ role, content })),
           ...Object.fromEntries(new URLSearchParams(windowQuery(win))),
         }),
       });
@@ -114,7 +194,9 @@ export default function Strategist() {
             continue;
           }
 
-          if (event.type === "thinking") setStatus("Thinking");
+          if (event.type === "chat") {
+            setChatId(event.id);
+          } else if (event.type === "thinking") setStatus("Thinking");
           else if (event.type === "tool") {
             setStatus(TOOL_LABEL[event.name] || `Running ${event.name}`);
             setMessages((prev) => {
@@ -142,6 +224,9 @@ export default function Strategist() {
       setBusy(false);
       setStatus(null);
       abortRef.current = null;
+      // The server saves as the stream closes; refresh the list so a new chat
+      // (or this one moving to the top) shows up.
+      setTimeout(loadChats, 400);
     }
   }
 
@@ -152,9 +237,62 @@ export default function Strategist() {
   }
 
   const empty = messages.length === 0;
+  const staleWindow = chatMeta?.windowLabel && data?.windowLabel && chatMeta.windowLabel !== data.windowLabel;
 
   return (
+    <div className={`chat-shell ${showHistory ? "" : "history-closed"}`}>
+      {showHistory && (
+        <aside className="chat-history">
+          <div className="chat-history-head">
+            <button className="btn btn-primary" onClick={newChat} disabled={busy}>
+              <MessageSquarePlus size={15} /> New chat
+            </button>
+            <button className="btn chat-history-toggle" onClick={toggleHistory} title="Hide history">
+              <PanelLeftClose size={15} />
+            </button>
+          </div>
+          <div className="chat-history-list">
+            {chats.length === 0 && <p className="chat-history-empty">Your chats on this account will be saved here.</p>}
+            {chats.map((c) => (
+              <div
+                key={c.id}
+                className={`chat-history-item ${c.id === chatId ? "active" : ""}`}
+                onClick={() => !busy && openChat(c.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && !busy && openChat(c.id)}
+              >
+                <span className="chat-history-title">{c.title}</span>
+                <span className="chat-history-meta">
+                  {new Date(c.updatedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                  {" · "}{c.windowLabel}{" · "}{c.turns} {c.turns === 1 ? "question" : "questions"}
+                </span>
+                <span className="chat-history-actions">
+                  <button title="Rename" onClick={(e) => { e.stopPropagation(); renameChat(c); }}>
+                    <Pencil size={12} />
+                  </button>
+                  <button title="Delete" onClick={(e) => { e.stopPropagation(); removeChat(c); }}>
+                    <Trash2 size={12} />
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </aside>
+      )}
+
     <div className="chat">
+      {!showHistory && (
+        <button className="btn chat-history-open" onClick={toggleHistory} title="Show saved chats">
+          <PanelLeftOpen size={15} /> Chats
+        </button>
+      )}
+      {staleWindow && (
+        <div className="chat-window-note">
+          Saved chat from {new Date(chatMeta.createdAt).toLocaleDateString()} on <strong>{chatMeta.windowLabel}</strong>.
+          New answers use the current window (<strong>{data.windowLabel}</strong>).
+        </div>
+      )}
       <div className="chat-scroll" ref={boxRef}>
         {empty && (
           <div className="chat-intro">
@@ -205,6 +343,7 @@ export default function Strategist() {
                   </span>
                 )
               )}
+              {m.error && <div className="chat-saved-error">This answer failed: {m.error}</div>}
             </div>
           </div>
         ))}
@@ -248,6 +387,7 @@ export default function Strategist() {
           </button>
         )}
       </form>
+    </div>
     </div>
   );
 }

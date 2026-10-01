@@ -1,4 +1,4 @@
-"""Streaming chat with the strategist. Session-gated like every other data route."""
+"""Streaming chat with the strategist, and its saved conversations. Session-gated."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from ..audit.engine import run_audit
 from ..auth import require_session
 from ..cache import audit_cache, breakdown_cache
+from ..chats import append_exchange, create_chat, delete_chat, get_chat, list_chats, rename_chat
 from ..meta.client import MetaApiError
 from ..meta.collect import collect_account, fetch_breakdown, normalise_account_id
 from ..meta.window import resolve_window
@@ -35,6 +36,12 @@ class ChatRequest(BaseModel):
     preset: str | None = None
     since: str | None = None
     until: str | None = None
+    # Continue a saved chat; omitted on the first message, which creates one.
+    chat_id: str | None = None
+
+
+class RenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
 
 
 def _sse(event: dict) -> str:
@@ -44,8 +51,10 @@ def _sse(event: dict) -> str:
 @router.post("/chat")
 async def chat(body: ChatRequest):
     """Server-sent events: thinking / text / tool / done / error."""
-    if not body.messages:
-        raise HTTPException(status_code=400, detail={"message": "No messages"})
+    if not body.messages or body.messages[-1].role != "user":
+        raise HTTPException(status_code=400, detail={"message": "The last message must be the question"})
+    if body.chat_id and get_chat(body.chat_id) is None:
+        raise HTTPException(status_code=404, detail={"message": "Chat not found"})
 
     try:
         window = resolve_window(body.preset, body.since, body.until)
@@ -91,16 +100,38 @@ async def chat(body: ChatRequest):
     # each turn anyway.
     history = [t.model_dump() for t in body.messages[-MAX_TURNS:]]
 
+    question = body.messages[-1].content
+    chat_id = body.chat_id or create_chat(
+        account_id=body.account_id,
+        account_name=(snapshot.get("account") or {}).get("name") or body.account_id,
+        window_label=snapshot.get("windowLabel") or window.key,
+        first_message=question,
+    )["id"]
+
     async def events() -> AsyncIterator[str]:
+        answer: list[str] = []
+        tools: list[str] = []
+        error: str | None = None
+        yield _sse({"type": "chat", "id": chat_id})
         try:
             async for event in stream_reply(
                 history, snapshot=snapshot, audit=audit, breakdown_fetcher=breakdown_fetcher
             ):
+                if event.get("type") == "text":
+                    answer.append(event.get("text", ""))
+                elif event.get("type") == "tool":
+                    tools.append(event.get("name", ""))
                 yield _sse(event)
         except StrategistNotConfigured as cause:
-            yield _sse({"type": "error", "message": str(cause)})
+            error = str(cause)
+            yield _sse({"type": "error", "message": error})
         except Exception as cause:  # noqa: BLE001 - the stream must close cleanly
-            yield _sse({"type": "error", "message": f"{type(cause).__name__}: {cause}"})
+            error = f"{type(cause).__name__}: {cause}"
+            yield _sse({"type": "error", "message": error})
+        finally:
+            # Runs on a stopped or disconnected stream too, so whatever was
+            # said before Stop is kept.
+            append_exchange(chat_id, question, "".join(answer), tools, error=error)
 
     return StreamingResponse(
         events(),
@@ -128,3 +159,32 @@ async def suggestions(account_id: str = Query(...)):
             "Write me a plan for next week.",
         ]
     }
+
+
+@router.get("/chats")
+def chats(account_id: str | None = Query(None)):
+    """Saved conversations, newest first. Filtered to one account when given."""
+    return {"chats": list_chats(account_id)}
+
+
+@router.get("/chats/{chat_id}")
+def chat_detail(chat_id: str):
+    chat = get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail={"message": "Chat not found"})
+    return chat
+
+
+@router.patch("/chats/{chat_id}")
+def chat_rename(chat_id: str, body: RenameRequest):
+    chat = rename_chat(chat_id, body.title)
+    if chat is None:
+        raise HTTPException(status_code=404, detail={"message": "Chat not found"})
+    return {"id": chat["id"], "title": chat["title"]}
+
+
+@router.delete("/chats/{chat_id}")
+def chat_delete(chat_id: str):
+    if not delete_chat(chat_id):
+        raise HTTPException(status_code=404, detail={"message": "Chat not found"})
+    return {"deleted": chat_id}

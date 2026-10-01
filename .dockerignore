@@ -16,3 +16,7 @@ backend/changes.jsonl
 generated
 reports
 *.log
+# Cut-out logos, regenerated from brand/ on demand
+backend/logo-cache/
+# Saved strategist chats
+backend/chats/

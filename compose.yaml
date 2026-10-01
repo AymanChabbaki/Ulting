@@ -14,6 +14,10 @@ services:
       CORS_ORIGINS: https://reports.ultex.ma
     volumes:
       - ulting_data:/data
+      # Bind-mounted, not just baked in: persona.md and the logo are re-read on
+      # every generation, so editing them on the server takes effect with no
+      # rebuild. Read-only -- the cut-out logo cache is written under /data.
+      - ./brand:/app/brand:ro
     expose:
       - "8000"
     restart: unless-stopped

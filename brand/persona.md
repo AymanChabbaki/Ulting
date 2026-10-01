@@ -45,22 +45,25 @@ otherwise. Moroccan Darija is acceptable where a prompt calls for it.
 
 ## Visual direction
 
-Real, professional photography — never illustration, never flat vector, never
-3D-render corporate art. The subject should look like it was shot on location.
+Our ads are **finished, designed posters**, not bare photos — see the reference
+ads in `brand/references/`. Every ad has the same grammar:
 
-Preferred subjects: container ports and terminals, stacked shipping containers,
-cargo vessels, freight trucks on the road, air freight and loading, organised
-warehouse interiors and racking, pallets and forklifts, customs and paperwork
-handled competently, maps and routes showing reach between Asia, Europe and
-Morocco.
+- **One strong visual metaphor** for "import is complicated, ULTEx makes it one
+  clear path": tangled wires with a single blue line cutting through, a row of
+  dominoes stopped by a blue ULTEx domino, a messy desk versus an organised one,
+  twelve contacts converging on one ULTEx hub. New ideas should invent new
+  metaphors in this spirit — never copy these four.
+- **Premium studio finish**: clean 3D still-life objects or realistic
+  photography, soft studio light and gentle shadows, on a light off-white,
+  pale grey or white-marble background. Lots of white space.
+- Objects carry short French labels where it helps the metaphor (Fournisseur,
+  Douane, Documents, Paiement, Délais, Suivi, Conformité, Livraison), and the
+  ULTEx "U-arrow" mark can appear embossed on the hero object.
+- Everything looks controlled and orderly — that *is* the promise.
 
-Composition: full-frame, one clear subject, generous negative space, natural
-daylight or clean industrial lighting, a calm and orderly scene. Everything
-should look controlled — that *is* the promise.
-
-Avoid: chaos, damaged or scattered cargo, anything that reads as delay or loss;
-stock-photo handshakes and pointing-at-charts; neon, cyberpunk, glowing "AI"
-gradients; cluttered collages; fake dashboards with unreadable text.
+Avoid: chaos with no resolution, damaged cargo, dark or gloomy scenes; stock
+handshakes and people pointing at charts; neon, cyberpunk, glowing "AI"
+gradients; cluttered collages.
 
 ## Colours
 
@@ -74,8 +77,24 @@ Use only when a prompt asks for figures, and keep them exact:
 2,166 transactions handled · 391 operations completed · 326 satisfied clients ·
 16 global partners.
 
-## Text in images
+## Layout and text in images
 
-Avoid rendering words unless the prompt explicitly asks for them. Image models
-garble small type, and a misspelled French headline is worse than no headline.
-The logo is composited in afterwards from the real file, so never draw it.
+Ads include their text, laid out like the references:
+
+- **Logo** — the full ULTEx lockup, top-left (top-right if the visual needs the
+  left side), always the real logo supplied.
+- **Headline** — big, bold geometric sans-serif in navy, two beats: a setup
+  line, then a punchline ("Une petite erreur. / Un grand effet."). The
+  punchline may be heavier or in yellow #f8c000. A full stop in yellow is a
+  house detail.
+- **Thin yellow rule** under the headline.
+- **Subline** — one short navy sentence on what ULTEx does about it.
+- **CTA** — a navy circle with a white arrow next to the action text, or a
+  yellow pill button with an arrow ("Centralisez votre importation →").
+- **Optional benefit band** — a navy strip along the bottom with 3-4 line icons
+  and short uppercase labels (MOINS DE RISQUES, GAIN DE TEMPS, VISIBILITÉ
+  TOTALE, ACCOMPAGNEMENT EXPERT).
+
+All text in French, spelled exactly as written in the prompt, with correct
+accents. Keep it short — a headline, a subline, a CTA. A wall of text reads as
+a brochure.

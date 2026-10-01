@@ -22,6 +22,7 @@ from ..creative import (
     gallery,
     generate_image,
     start_video,
+    style_references,
     video_status,
 )
 
@@ -31,12 +32,19 @@ router = APIRouter(prefix="/api/creative", tags=["creative"], dependencies=[Depe
 class ImageRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=4000)
     size: str = "square"
-    quality: str = "high"
+    # None -> the best the chosen model supports ("max" on the 2.5 family).
+    quality: str | None = None
+    model: str | None = None
     logo: str | None = None
-    logo_position: str = "bottom-right"
+    # "model": logo sent to the image model as an input image (default).
+    # "overlay": pasted on afterwards, pixel-exact. "none": no logo.
+    logo_mode: str = Field(default="model", pattern="^(model|overlay|none)$")
+    logo_position: str = "auto"
     logo_scale: float = Field(default=0.16, ge=0.04, le=0.5)
     use_persona: bool = True
-    reference_logo: bool = False
+    # full_ad: finished poster with headline/CTA in the house style; visual: picture only.
+    design: str = Field(default="full_ad", pattern="^(full_ad|visual)$")
+    use_references: bool = True
 
 
 class IdeasRequest(BaseModel):
@@ -44,6 +52,10 @@ class IdeasRequest(BaseModel):
     brief: str = Field(default="", max_length=2000)
     count: int = Field(default=4, ge=1, le=8)
     use_trends: bool = True
+    audience: str = Field(default="", max_length=200)
+    service: str = Field(default="", max_length=200)
+    language: str = Field(default="fr", pattern=r"^(fr|darija|ar|fr\+darija)$")
+    placement: str = Field(default="", max_length=60)
     preset: str | None = None
     since: str | None = None
     until: str | None = None
@@ -80,7 +92,17 @@ def brand():
 @router.post("/preview-prompt")
 def preview_prompt(body: ImageRequest):
     """What the model will actually receive, so the persona is never a mystery."""
-    return {"prompt": compose_prompt(body.prompt, kind="image", use_persona=body.use_persona)}
+    return {
+        "prompt": compose_prompt(
+            body.prompt,
+            kind="image",
+            use_persona=body.use_persona,
+            logo_mode="model" if body.logo_mode == "model" and body.logo != "none" else "none",
+            logo_position=body.logo_position,
+            design=body.design,
+            n_references=len(style_references()) if body.use_references else 0,
+        )
+    }
 
 
 @router.post("/image")
@@ -90,11 +112,14 @@ async def image(body: ImageRequest):
             body.prompt,
             size=body.size,
             quality=body.quality,
+            model=body.model,
             logo=body.logo,
+            logo_mode=body.logo_mode,
             logo_position=body.logo_position,
             logo_scale=body.logo_scale,
             use_persona=body.use_persona,
-            reference_logo=body.reference_logo,
+            design=body.design,
+            use_references=body.use_references,
         )
     except Exception as cause:  # noqa: BLE001 - mapped to a status the UI can show
         raise _handle(cause) from cause
@@ -137,13 +162,35 @@ async def ideas(body: IdeasRequest):
             snapshot = audit = None
     try:
         return await generate_ideas(
-            snapshot=snapshot, audit=audit, brief=body.brief,
-            count=body.count, use_trends=body.use_trends,
+            snapshot=snapshot, audit=audit, account_id=body.account_id,
+            brief=body.brief, count=body.count, use_trends=body.use_trends,
+            audience=body.audience, service=body.service,
+            language=body.language, placement=body.placement,
         )
     except PromptGenNotConfigured as cause:
         raise HTTPException(status_code=503, detail={"message": str(cause)}) from cause
     except Exception as cause:  # noqa: BLE001
         raise _handle(cause) from cause
+
+
+@router.get("/logo-preview/{name}")
+def logo_preview(name: str):
+    """The background-removed version of a logo -- exactly what gets sent."""
+    from ..creative import _logo_path, remove_logo_background
+
+    source = _logo_path(name)
+    if not source:
+        raise HTTPException(status_code=404, detail={"message": "Logo not found"})
+    return FileResponse(remove_logo_background(source), media_type="image/png")
+
+
+@router.get("/reference/{name}")
+def reference(name: str):
+    """A house-style reference ad from brand/references/, for the UI strip."""
+    match = next((p for p in style_references() if p.name == name), None)
+    if not match:
+        raise HTTPException(status_code=404, detail={"message": "Reference not found"})
+    return FileResponse(match)
 
 
 @router.get("/gallery")

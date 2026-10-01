@@ -256,22 +256,37 @@ a single `round()` — minor-unit confusion is where money bugs live.
 
 ## Idea generator
 
-`backend/app/promptgen.py`, surfaced in the creative studio. Produces creative
-briefs, each with a ready-to-paste image prompt and video prompt, from three
-inputs in order of authority:
+`backend/app/promptgen.py`, surfaced in the creative studio. Returns complete
+ads: framework, insight, hook, primary text, headline and CTA in the chosen
+language (French, Darija, Arabic), an image prompt built to a fixed formula,
+and an 8-second, three-beat video prompt.
 
-1. the **brand persona** (`brand/persona.md`)
-2. **what actually converts in this account** — campaigns with ≥10 conversions
-   and ads with ≥500 impressions only, so a concept never gets built on a
-   two-conversion fluke
-3. **live web search** via the Responses API, localised to Morocco
-   (`user_location: {country: "MA", city: "Casablanca"}`), so "tendance" means
-   current freight, customs and seasonal context rather than model memory
+The first version produced generic logistics clichés because of its *input*:
+it told the model the winners were "Image 2" and "AD4" -- names, not content.
+It now sees what a creative strategist would look at:
 
-Output is a strict JSON schema, and the response reports whether search actually
-ran, whether account data was available, and which trends it used — so the
-provenance of an idea is visible rather than assumed. One click drops a prompt
-into the generator above.
+1. **The account's real ads** from Meta -- headline, body, CTA and the image
+   itself (downloaded server-side and attached, since Meta's CDN links are
+   signed and short-lived). Winners sorted by cost per result, plus ads that
+   spent without converting. Ads with identical copy are merged so duplicates
+   across ad sets don't crowd out everything else.
+2. **The brand persona** (`brand/persona.md`).
+3. **A sourcing calendar for Moroccan importers** (150 days): Golden Week,
+   Canton Fair, 11.11, Black Friday, the Loi de Finances, Chinese New Year,
+   Ramadan, Eid. For an importer the decision happens weeks before the event --
+   the angle a generic trend search misses. Lunar dates are flagged approximate.
+4. **Live web search** localised to Morocco (`country: MA`).
+
+The model is `OPENAI_CREATIVE_MODEL` (default `gpt-5.5`) at high reasoning
+effort. It is told to brainstorm at least three times as many concepts as
+requested, kill the generic ones (the test: if you could swap ULTEx for any
+freight forwarder, it's too generic), and return ideas that each use a
+different framework *and* a different importer pain point. Every idea states
+what evidence it builds on and what running it would test.
+
+The response also reports what the model learned from, how many winning images
+it actually saw, whether search ran, and any evidence notes -- e.g. that the
+best-converting ads carry body copy about gold and silver investments.
 
 ## Creative studio
 
