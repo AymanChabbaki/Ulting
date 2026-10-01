@@ -602,12 +602,20 @@ async def start_video(
     settings = get_settings()
     if seconds not in VIDEO_SECONDS:
         seconds = "4"
-    video = await client.videos.create(
-        model=model or settings.openai_video_model or DEFAULT_VIDEO_MODEL,
-        prompt=compose_prompt(prompt, kind="video", use_persona=use_persona),
-        size=VIDEO_SIZES.get(size, VIDEO_SIZES["portrait"]),
-        seconds=seconds,
-    )
+    try:
+        video = await client.videos.create(
+            model=model or settings.openai_video_model or DEFAULT_VIDEO_MODEL,
+            prompt=compose_prompt(prompt, kind="video", use_persona=use_persona),
+            size=VIDEO_SIZES.get(size, VIDEO_SIZES["portrait"]),
+            seconds=seconds,
+        )
+    except openai.NotFoundError as cause:
+        # OpenAI shut the Sora API down on 2026-09-24; the whole /videos
+        # endpoint now answers a bare 404, which reads like our bug.
+        raise CreativeNotConfigured(
+            "OpenAI shut down the Sora video API on 24 September 2026, so video "
+            "generation is unavailable until another video provider is connected."
+        ) from cause
     return {
         "id": video.id,
         "status": video.status,
