@@ -73,7 +73,7 @@ class VideoRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=4000)
     size: str = Field(default="portrait", pattern="^(portrait|landscape)$")
     seconds: str = Field(default="8", pattern="^(4|6|8)$")
-    resolution: str = Field(default="720p", pattern="^(720p|1080p)$")
+    resolution: str = Field(default="720p", pattern="^(360p|720p|1080p|4k)$")
     model: str | None = None
     # A generated image (gallery file name) to use as the first frame.
     start_image: str | None = None

@@ -1648,3 +1648,14 @@ tr.is-child td { background: var(--surface-2); }
 .scene-label small { font-weight: 500; color: var(--text-muted); }
 .scene-add { justify-self: start; }
 @media (max-width: 600px) { .scene-row { grid-template-columns: minmax(0, 1fr) auto; } .scene-label { grid-column: 1 / -1; padding: 0; } }
+
+.cost-estimate {
+  align-self: center; font-size: 12.5px; font-weight: 600; color: var(--text-secondary);
+  padding: 5px 10px; border-radius: 999px; background: var(--surface-sunken);
+}
+
+.ctl-static {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 10px;
+  font-size: 13px; color: var(--text-secondary);
+  border: 1px dashed var(--border-strong); border-radius: 10px;
+}

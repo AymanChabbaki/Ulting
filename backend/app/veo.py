@@ -1,5 +1,8 @@
 """
-Video generation with Google Veo, through the Gemini API.
+Video generation with Google Veo, through the Gemini API -- and the entry
+point for every video model: Gemini Omni Flash requests are handed to
+`omni.py`, which works differently (see there), but share the same job/poll
+flow, gallery and sidecars.
 
 Replaces Sora: OpenAI shut the Sora API down on 2026-09-24. Veo renders take
 a minute or more, so this works like the old flow -- start a long-running
@@ -37,10 +40,12 @@ from .creative import OUTPUT_DIR, CreativeNotConfigured, _slug, asset_path, load
 
 API = "https://generativelanguage.googleapis.com/v1beta"
 
+OMNI_MODELS = ["gemini-omni-1.1-flash", "gemini-omni-flash-preview"]
 VIDEO_MODELS = [
     "veo-3.1-generate-preview",
     "veo-3.1-fast-generate-preview",
     "veo-3.1-lite-generate-preview",
+    *OMNI_MODELS,
 ]
 DEFAULT_VIDEO_MODEL = "veo-3.1-generate-preview"
 VIDEO_ASPECTS = {"portrait": "9:16", "landscape": "16:9"}
@@ -51,6 +56,42 @@ RESOLUTIONS_BY_MODEL = {
     "veo-3.1-generate-preview": ["720p", "1080p", "4k"],
     "veo-3.1-fast-generate-preview": ["720p", "1080p", "4k"],
     "veo-3.1-lite-generate-preview": ["720p", "1080p"],
+    # Omni renders 360p/720p; 1080p and 4k are upscaled.
+    "gemini-omni-1.1-flash": ["360p", "720p", "1080p", "4k"],
+    "gemini-omni-flash-preview": ["360p", "720p", "1080p", "4k"],
+}
+
+# Price per second of generated video (audio included), from
+# ai.google.dev/gemini-api/docs/pricing as of 2026-10-01. Google bills only
+# videos that are actually generated. Update here when the page changes.
+PRICING_SOURCE = "ai.google.dev/gemini-api/docs/pricing (checked 2026-10-01)"
+_VEO_LIMITS = {"provider": "veo", "seconds": [4, 6, 8], "extendSeconds": 7,
+               "maxTotalSeconds": 148, "extendResolution": "720p"}
+# Omni bills tokens: 5,792 output tokens per second of 720p video at $17.50
+# per 1M = ~$0.10/s. Google publishes no per-second figure for the other
+# resolutions, so the page estimates them at the 720p rate.
+_OMNI_LIMITS = {"provider": "omni", "seconds": None, "lengthNote": "~5-10s, timed by the prompt",
+                "extendSeconds": 10, "maxTotalSeconds": 40, "extendResolution": None,
+                "pricePerSecond": {"720p": 0.1014}, "priceNote": "token-billed; 720p rate"}
+VIDEO_MODEL_INFO = {
+    "veo-3.1-generate-preview": {
+        **_VEO_LIMITS, "label": "Veo 3.1", "tier": "best quality",
+        "pricePerSecond": {"720p": 0.40, "1080p": 0.40, "4k": 0.60}, "canExtend": True,
+    },
+    "veo-3.1-fast-generate-preview": {
+        **_VEO_LIMITS, "label": "Veo 3.1 fast", "tier": "good quality, cheaper",
+        "pricePerSecond": {"720p": 0.10, "1080p": 0.12, "4k": 0.30}, "canExtend": True,
+    },
+    "veo-3.1-lite-generate-preview": {
+        **_VEO_LIMITS, "label": "Veo 3.1 lite", "tier": "cheapest, for drafts",
+        "pricePerSecond": {"720p": 0.05, "1080p": 0.08}, "canExtend": False,
+    },
+    "gemini-omni-1.1-flash": {
+        **_OMNI_LIMITS, "label": "Gemini Omni 1.1 Flash", "tier": "fast, editable", "canExtend": True,
+    },
+    "gemini-omni-flash-preview": {
+        **_OMNI_LIMITS, "label": "Gemini Omni Flash (preview)", "tier": "earlier preview", "canExtend": True,
+    },
 }
 
 # Extension limits, from the Gemini API docs.
@@ -92,6 +133,9 @@ def video_kit() -> dict[str, Any]:
         "extendModels": EXTEND_MODELS,
         "extendSeconds": EXTEND_SECONDS,
         "maxExtendableSeconds": MAX_EXTENDABLE_SECONDS,
+        "maxExtensions": MAX_EXTENSIONS,
+        "videoModelInfo": VIDEO_MODEL_INFO,
+        "pricingSource": PRICING_SOURCE,
     }
 
 
@@ -205,6 +249,41 @@ def video_meta(name: str) -> dict[str, Any] | None:
         return None
 
 
+def mp4_seconds(data: bytes) -> float | None:
+    """Duration from the MP4's mvhd box -- the real length, whatever the model
+    decided, without ffmpeg."""
+    i = data.find(b"mvhd")
+    if i < 0:
+        return None
+    i += 4
+    try:
+        if data[i] == 1:
+            scale = int.from_bytes(data[i + 20:i + 24], "big")
+            duration = int.from_bytes(data[i + 24:i + 32], "big")
+        else:
+            scale = int.from_bytes(data[i + 12:i + 16], "big")
+            duration = int.from_bytes(data[i + 16:i + 20], "big")
+    except IndexError:
+        return None
+    return round(duration / scale, 1) if scale else None
+
+
+def save_video(raw: bytes, meta: dict[str, Any], *, tail: str) -> tuple[str, float | None]:
+    """Write a finished video and its sidecar into the gallery."""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    label = meta.get("rootPrompt") or meta.get("prompt") or "video"
+    suffix = f"-ext{meta['extensions']}" if meta.get("extensions") else ""
+    name = f"{stamp}-{_slug(label)}{suffix}-{tail}.mp4"
+    path = OUTPUT_DIR / name
+    path.write_bytes(raw)
+    seconds = mp4_seconds(raw) or meta.get("seconds")
+    _sidecar(path).write_text(json.dumps({
+        **meta, "seconds": seconds, "createdAt": datetime.now(timezone.utc).isoformat(),
+    }, ensure_ascii=False, indent=1), encoding="utf-8")
+    return name, seconds
+
+
 # ------------------------------------------------------------------- requests
 
 async def _submit(model: str, instance: dict[str, Any], parameters: dict[str, Any]) -> str:
@@ -229,9 +308,15 @@ async def start_video(
     start_image: str | None = None,
     use_persona: bool = True,
 ) -> dict[str, Any]:
-    """Start a render; returns at once with the operation to poll."""
+    """Start a render; returns at once with the job to poll."""
     _key()
     model = model if model in VIDEO_MODELS else (get_settings().gemini_video_model or DEFAULT_VIDEO_MODEL)
+    if model in OMNI_MODELS:
+        from . import omni
+        return await omni.start(
+            prompt, model=model, aspect=VIDEO_ASPECTS.get(size, VIDEO_ASPECTS["portrait"]),
+            resolution=resolution, start_image=start_image, use_persona=use_persona,
+        )
     seconds = seconds if seconds in VIDEO_SECONDS else "8"
     allowed = RESOLUTIONS_BY_MODEL.get(model, ["720p", "1080p"])
     resolution = resolution if resolution in allowed else "720p"
@@ -266,6 +351,7 @@ async def start_video(
         name = await _submit(model, instance, parameters)
 
     _JOBS[name] = {
+        "provider": "veo",
         "prompt": prompt, "model": model, "aspect": aspect, "resolution": resolution,
         "seconds": int(seconds), "startImage": start_image if image else None,
         "parent": None, "extensions": 0, "rootPrompt": prompt,
@@ -292,7 +378,11 @@ async def extend_video(
     path = asset_path(source) if source else None
     meta = video_meta(source)
     if not path or meta is None:
-        raise VeoError(400, "Only videos generated here with Veo can be extended.")
+        raise VeoError(400, "Only videos generated here with Veo or Omni Flash can be extended.")
+    if meta.get("provider") == "omni":
+        # Omni continues its own interaction; a Veo model cannot extend it.
+        from . import omni
+        return await omni.extend(source, prompt, meta)
     if meta.get("resolution") not in (None, "720p"):
         raise VeoError(400, f"Veo can only extend 720p videos; this one is {meta['resolution']}.")
     length = meta.get("seconds")
@@ -332,6 +422,7 @@ async def extend_video(
         raise last or VeoError(400, "Veo rejected the extension request.")
 
     _JOBS[name] = {
+        "provider": "veo",
         "prompt": prompt, "model": model, "aspect": meta.get("aspect"), "resolution": "720p",
         "seconds": (length + EXTEND_SECONDS) if length else None,
         "startImage": meta.get("startImage"), "parent": source,
@@ -347,6 +438,9 @@ async def extend_video(
 
 async def video_status(operation: str) -> dict[str, Any]:
     """Poll a render; downloads the MP4 into the gallery once it is done."""
+    if (operation or "").startswith("omni-"):
+        from . import omni
+        return await omni.status(operation)
     if not _OPERATION.match(operation or ""):
         raise VeoError(400, "Not a Veo job id")
     key = _key()
@@ -390,24 +484,12 @@ async def video_status(operation: str) -> dict[str, Any]:
             raise VeoError(video.status_code, "Could not download the finished video")
 
     job = _JOBS.pop(operation, {})
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    label = job.get("rootPrompt") or job.get("prompt") or "video"
-    suffix = f"-ext{job['extensions']}" if job.get("extensions") else ""
-    name = f"{stamp}-{_slug(label)}{suffix}-{tail}.mp4"
-    path = OUTPUT_DIR / name
-    path.write_bytes(video.content)
-    _sidecar(path).write_text(json.dumps({
-        "provider": "veo",
-        "operation": operation,
-        "uri": uri,
+    meta = {
+        "provider": "veo", **job, "operation": operation, "uri": uri,
         "model": job.get("model") or operation.split("/")[1],
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-        **{k: job.get(k) for k in ("prompt", "rootPrompt", "aspect", "resolution", "seconds",
-                                   "startImage", "parent", "extensions")},
-    }, ensure_ascii=False, indent=1), encoding="utf-8")
-
+    }
+    name, seconds = save_video(video.content, meta, tail=tail)
     payload.update({"status": "completed", "progress": 100, "file": name,
                     "url": f"/api/creative/asset/{name}", "bytes": len(video.content),
-                    "seconds": job.get("seconds")})
+                    "seconds": seconds})
     return payload

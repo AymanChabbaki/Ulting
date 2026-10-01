@@ -609,7 +609,8 @@ def gallery(limit: int = 60) -> list[dict[str, Any]]:
             try:
                 meta = json.loads(sidecar.read_text(encoding="utf-8"))
                 item["veo"] = {k: meta.get(k) for k in (
-                    "model", "aspect", "resolution", "seconds", "extensions", "parent", "prompt")}
+                    "provider", "model", "aspect", "resolution", "seconds", "extensions", "parent",
+                    "prompt")}
             except (OSError, json.JSONDecodeError):
                 pass
         items.append(item)

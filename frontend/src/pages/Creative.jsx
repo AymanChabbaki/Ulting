@@ -26,11 +26,44 @@ import { windowQuery } from "../lib/api.js";
 
 const LOGO_POSITIONS = ["auto", "bottom-right", "bottom-left", "top-right", "top-left", "bottom-center"];
 
-const VIDEO_MODEL_LABELS = {
-  "veo-3.1-generate-preview": "Veo 3.1 — best quality",
-  "veo-3.1-fast-generate-preview": "Veo 3.1 fast — cheaper",
-  "veo-3.1-lite-generate-preview": "Veo 3.1 lite — cheapest drafts",
-};
+const usd = (n) => `$${n.toFixed(2)}`;
+
+/**
+ * "Veo 3.1 fast — $0.10–0.30/s · 4–8s · up to 4k · extendable", from the
+ * prices and limits the API sends (veo.py VIDEO_MODEL_INFO).
+ */
+function videoModelLabel(m, info, resolutionsByModel) {
+  const i = info?.[m];
+  if (!i) return m;
+  const prices = Object.values(i.pricePerSecond);
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  const approx = i.priceNote ? "≈" : "";
+  const price = lo === hi ? `${approx}$${lo.toFixed(2)}/s` : `$${lo.toFixed(2)}–${hi.toFixed(2)}/s`;
+  const secs = i.seconds ? `${Math.min(...i.seconds)}–${Math.max(...i.seconds)}s per render` : i.lengthNote;
+  const res = (resolutionsByModel?.[m] || Object.keys(i.pricePerSecond)).slice(-1)[0];
+  const extend = i.canExtend ? ` · extend +${i.extendSeconds}s up to ${i.maxTotalSeconds}s` : " · no extend";
+  return `${i.label} — ${price} · ${secs} · up to ${res}${extend}`;
+}
+
+/**
+ * Estimated price of seconds of video at a resolution, or null if unknown.
+ * Omni is token-billed and Google only publishes its 720p rate, so other
+ * Omni resolutions are estimated at that rate.
+ */
+function videoCost(m, resolution, seconds, info) {
+  const i = info?.[m];
+  const per = i?.pricePerSecond?.[resolution] ?? (i?.priceNote ? i.pricePerSecond["720p"] : null);
+  return per == null ? null : per * seconds;
+}
+
+const isOmni = (m, info) => info?.[m]?.provider === "omni";
+const extendStep = (m, info) => info?.[m]?.extendSeconds || 7;
+const maxTotal = (m, info) => info?.[m]?.maxTotalSeconds || 148;
+// Veo renders exactly what is asked; Omni picks ~5-10s, so 8s is the estimate.
+const FIRST_SCENE_SECONDS = 8;
+// Lite cannot extend; a multi-scene Veo video runs on fast instead.
+const chainModelFor = (m) => (m.includes("lite") ? "veo-3.1-fast-generate-preview" : m);
 
 const LOGO_MODES = [
   { value: "model", label: "AI places the logo", hint: "Logo sent to the model, integrated into the scene" },
@@ -197,9 +230,10 @@ export default function Creative() {
     extendCancel.current = false;
     let source = extendFor.file;
     let length = extendFor.veo?.seconds || null;
+    const stepSecs = extendStep(extendModel, brand?.videoModelInfo);
     try {
       for (let step = 1; step <= extendSteps; step += 1) {
-        const target = length ? ` → ${length + 7}s` : "";
+        const target = length ? ` → ~${Math.round(length + stepSecs)}s` : "";
         setExtendStatus(`Step ${step}/${extendSteps}: starting${target}…`);
         const job = await post("/api/creative/video/extend", {
           source,
@@ -212,7 +246,7 @@ export default function Creative() {
           setExtendStatus(`Step ${step}/${extendSteps}: rendering${target} · ${secs}s`);
         });
         source = done.file;
-        length = done.seconds || (length ? length + 7 : null);
+        length = done.seconds || (length ? length + stepSecs : null);
         loadGallery();
       }
       setExtendStatus(`Done${length ? ` — ${length}s video` : ""}. It is at the top of the gallery.`);
@@ -231,8 +265,13 @@ export default function Creative() {
     setExtendError(null);
     setExtendStatus(null);
     const m = asset.veo?.model;
-    setExtendModel(brand?.extendModels?.includes(m) ? m : "veo-3.1-fast-generate-preview");
-    const room = Math.floor(((brand?.maxExtendableSeconds || 141) - (asset.veo?.seconds || 8)) / 7) + 1;
+    // Omni continues its own interaction, so the model is fixed to the source's.
+    const next = asset.veo?.provider === "omni"
+      ? m
+      : brand?.extendModels?.includes(m) ? m : "veo-3.1-fast-generate-preview";
+    setExtendModel(next);
+    const info = brand?.videoModelInfo;
+    const room = Math.floor((maxTotal(next, info) - (asset.veo?.seconds || 8)) / extendStep(next, info));
     setExtendSteps((s) => Math.max(1, Math.min(s, room)));
   }
 
@@ -244,7 +283,16 @@ export default function Creative() {
   async function runScenePlan() {
     const later = scenePlan.map((s) => s.trim()).filter(Boolean);
     const total = later.length + 1;
-    const chainModel = videoModel.includes("lite") ? "veo-3.1-fast-generate-preview" : videoModel;
+    const info = brand?.videoModelInfo;
+    const chainModel = chainModelFor(videoModel);
+    const step = extendStep(chainModel, info);
+    const omni = isOmni(chainModel, info);
+    if (FIRST_SCENE_SECONDS + step * later.length > maxTotal(chainModel, info)) {
+      throw new Error(
+        `${info?.[chainModel]?.label || chainModel} videos stop at ${maxTotal(chainModel, info)}s — ` +
+        `use at most ${Math.floor((maxTotal(chainModel, info) - FIRST_SCENE_SECONDS) / step) + 1} scenes.`
+      );
+    }
     extendCancel.current = false;
     setChainRunning(true);
     setExtendStatus(null);
@@ -255,20 +303,21 @@ export default function Creative() {
     try {
       setStatus(`Scene 1/${total}: starting…`);
       const first = await post("/api/creative/video", {
-        prompt, size, seconds: "8", resolution: "720p", model: chainModel,
+        // Veo extends 720p only; Omni keeps the chosen resolution.
+        prompt, size, seconds: "8", resolution: omni ? resolution : "720p", model: chainModel,
         start_image: startImage || null, use_persona: usePersona,
       });
-      let done = await waitForVideo(first.id, tick(`Scene 1/${total}: rendering (8s)`));
+      let done = await waitForVideo(first.id, tick(`Scene 1/${total}: rendering (${omni ? "~" : ""}8s)`));
       loadGallery();
       let source = done.file;
-      let length = done.seconds || 8;
+      let length = done.seconds || FIRST_SCENE_SECONDS;
       for (let i = 0; i < later.length; i += 1) {
-        const label = `Scene ${i + 2}/${total}: rendering (→ ${length + 7}s)`;
+        const label = `Scene ${i + 2}/${total}: rendering (→ ~${Math.round(length + step)}s)`;
         setStatus(`Scene ${i + 2}/${total}: starting…`);
         const job = await post("/api/creative/video/extend", { source, prompt: later[i], model: chainModel });
         done = await waitForVideo(job.id, tick(label));
         source = done.file;
-        length = done.seconds || length + 7;
+        length = done.seconds || length + step;
         loadGallery();
       }
       setExtendStatus(`Done — ${total} scenes, ${length}s video. It is at the top of the gallery; the shorter steps are kept too.`);
@@ -407,6 +456,12 @@ export default function Creative() {
     }
   }
 
+  const vInfo = brand?.videoModelInfo;
+  const sceneModel = chainModelFor(videoModel || "");
+  const sceneStep = extendStep(sceneModel, vInfo);
+  const sceneMax = Math.floor((maxTotal(sceneModel, vInfo) - FIRST_SCENE_SECONDS) / sceneStep);
+  const omniSelected = isOmni(videoModel, vInfo);
+
   const sizes = kind === "image" ? ["square", "portrait", "landscape"] : ["portrait", "landscape"];
   const qualities = brand?.qualityByModel?.[model] || ["low", "medium", "high"];
 
@@ -471,14 +526,16 @@ export default function Creative() {
           <div className="scene-plan">
             {scenePlan.length > 0 && (
               <p className="scene-plan-note">
-                The prompt above is <strong>scene 1</strong> (8s). Each scene below continues the
-                previous one from its last frame (+7s). Total <strong>{8 + 7 * scenePlan.length}s</strong>,
-                rendered at 720p, one scene after another.
+                The prompt above is <strong>scene 1</strong> ({omniSelected ? "~" : ""}8s). Each scene
+                below continues the previous one from its last frame (+{sceneStep}s). Total{" "}
+                <strong>~{FIRST_SCENE_SECONDS + sceneStep * scenePlan.length}s</strong>
+                {omniSelected ? "" : ", rendered at 720p"}, one scene after another
+                — {vInfo?.[sceneModel]?.label || sceneModel} allows up to {sceneMax + 1} scenes.
               </p>
             )}
             {scenePlan.map((s, i) => (
               <div key={i} className="scene-row">
-                <span className="scene-label">Scene {i + 2}<small>+7s</small></span>
+                <span className="scene-label">Scene {i + 2}<small>+{sceneStep}s</small></span>
                 <textarea
                   className="input"
                   rows={3}
@@ -494,9 +551,9 @@ export default function Creative() {
             <button
               className="btn scene-add"
               onClick={() => setScenePlan([...scenePlan, ""])}
-              disabled={scenePlan.length >= 19 || busy}
+              disabled={scenePlan.length >= sceneMax || busy}
             >
-              + Add scene (+7s)
+              + Add scene (+{sceneStep}s)
             </button>
           </div>
         )}
@@ -546,7 +603,7 @@ export default function Creative() {
                   }}
                 >
                   {(brand?.videoModels || []).map((m) => (
-                    <option key={m} value={m}>{VIDEO_MODEL_LABELS[m] || m}</option>
+                    <option key={m} value={m}>{videoModelLabel(m, vInfo, brand?.videoResolutionsByModel)}</option>
                   ))}
                 </select>
               </label>
@@ -558,21 +615,38 @@ export default function Creative() {
                   onChange={(e) => {
                     setResolution(e.target.value);
                     // Veo renders 1080p and 4k only at 8 seconds.
-                    if (e.target.value !== "720p") setSeconds("8");
+                    if (!omniSelected && e.target.value !== "720p") setSeconds("8");
                   }}
                 >
                   {(brand?.videoResolutionsByModel?.[videoModel] || brand?.videoResolutions || ["720p", "1080p"])
-                    .map((r) => <option key={r} value={r}>{r === "720p" ? "720p (extendable)" : r}</option>)}
+                    .map((r) => {
+                      const per = vInfo?.[videoModel]?.pricePerSecond?.[r];
+                      const note = omniSelected
+                        ? (r === "1080p" || r === "4k" ? " · upscaled" : "")
+                        : r === "720p" ? " · extendable" : " · 8s only";
+                      return (
+                        <option key={r} value={r}>
+                          {r}{per != null ? ` · ${usd(per)}/s` : ""}{note}
+                        </option>
+                      );
+                    })}
                 </select>
               </label>
-              <label className="ctl">
-                <span>Duration</span>
-                <select className="select" value={seconds} onChange={(e) => setSeconds(e.target.value)}>
-                  {(brand?.videoSeconds || ["4", "6", "8"]).map((s) => (
-                    <option key={s} value={s} disabled={resolution !== "720p" && s !== "8"}>{s}s</option>
-                  ))}
-                </select>
-              </label>
+              {omniSelected ? (
+                <div className="ctl">
+                  <span>Duration</span>
+                  <span className="ctl-static">{vInfo?.[videoModel]?.lengthNote || "~5–10s"}</span>
+                </div>
+              ) : (
+                <label className="ctl">
+                  <span>Duration</span>
+                  <select className="select" value={seconds} onChange={(e) => setSeconds(e.target.value)}>
+                    {(brand?.videoSeconds || ["4", "6", "8"]).map((s) => (
+                      <option key={s} value={s} disabled={resolution !== "720p" && s !== "8"}>{s}s</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="ctl">
                 <span>Start from</span>
                 <select className="select" value={startImage} onChange={(e) => setStartImage(e.target.value)}>
@@ -683,6 +757,21 @@ export default function Creative() {
           <button className="btn" onClick={previewPrompt} disabled={!prompt.trim()}>
             <Wand2 size={15} /> Preview full prompt
           </button>
+          {kind === "video" && (() => {
+            const scenes = scenePlan.filter((s) => s.trim()).length;
+            const chainModel = scenes ? sceneModel : videoModel;
+            const res = scenes && !omniSelected ? "720p" : resolution;
+            const secs = scenes
+              ? FIRST_SCENE_SECONDS + sceneStep * scenes
+              : omniSelected ? FIRST_SCENE_SECONDS : Number(seconds);
+            const cost = videoCost(chainModel, res, secs, vInfo);
+            if (cost == null) return null;
+            return (
+              <span className="cost-estimate" title={`Prices: ${brand?.pricingSource || "Google pricing page"}`}>
+                ≈ {usd(cost)} · {omniSelected ? "~" : ""}{secs}s at {res} · {vInfo[chainModel].label}
+              </span>
+            );
+          })()}
           {chainRunning && (
             <button className="btn" onClick={() => { extendCancel.current = true; }}>
               Stop after this scene
@@ -776,7 +865,13 @@ export default function Creative() {
             <span>Video scenes</span>
             <select className="select" value={ideaScenes} onChange={(e) => setIdeaScenes(Number(e.target.value))}>
               {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                <option key={n} value={n}>{n} scene{n > 1 ? "s" : ""} · {8 + 7 * (n - 1)}s</option>
+                <option key={n} value={n}>
+                  {n} scene{n > 1 ? "s" : ""} · ~{FIRST_SCENE_SECONDS + sceneStep * (n - 1)}s
+                  {videoCost(sceneModel, "720p", FIRST_SCENE_SECONDS + sceneStep * (n - 1), vInfo) != null
+                    ? ` · ≈ ${usd(videoCost(sceneModel, "720p", FIRST_SCENE_SECONDS + sceneStep * (n - 1), vInfo))}`
+                    : ""}
+                  {n - 1 > sceneMax ? ` · too long for ${vInfo?.[sceneModel]?.label}` : ""}
+                </option>
               ))}
             </select>
           </label>
@@ -932,9 +1027,12 @@ export default function Creative() {
               <div>
                 <strong>Extend this video</strong>
                 <p>
-                  Veo continues it from the last frame, as one continuous shot — +7s per step.
-                  {extendFor.veo?.seconds ? ` Now ${extendFor.veo.seconds}s.` : ""} 720p only, up to
-                  ~148s in total. Each step is saved as a new video; the original is kept.
+                  {vInfo?.[extendModel]?.label || "Veo"} continues it from the last frame, as one
+                  continuous shot — +{extendStep(extendModel, vInfo)}s per step.
+                  {extendFor.veo?.seconds ? ` Now ${extendFor.veo.seconds}s.` : ""}
+                  {extendFor.veo?.provider === "omni" ? "" : " 720p only,"} up to{" "}
+                  {maxTotal(extendModel, vInfo)}s in total. Each step is saved as a new video; the
+                  original is kept.
                 </p>
               </div>
             </div>
@@ -950,19 +1048,27 @@ export default function Creative() {
               <label className="ctl">
                 <span>Model</span>
                 <select className="select" value={extendModel} onChange={(e) => setExtendModel(e.target.value)} disabled={extendBusy}>
-                  {(brand?.extendModels || []).map((m) => <option key={m} value={m}>{VIDEO_MODEL_LABELS[m] || m}</option>)}
+                  {(extendFor.veo?.provider === "omni" ? [extendFor.veo.model] : brand?.extendModels || [])
+                    .map((m) => <option key={m} value={m}>{videoModelLabel(m, vInfo, brand?.videoResolutionsByModel)}</option>)}
                 </select>
               </label>
               <label className="ctl">
                 <span>Steps</span>
                 <select className="select" value={extendSteps} onChange={(e) => setExtendSteps(Number(e.target.value))} disabled={extendBusy}>
                   {Array.from({ length: 20 }, (_, i) => i + 1)
-                    .filter((n) => (extendFor.veo?.seconds || 8) + 7 * (n - 1) <= (brand?.maxExtendableSeconds || 141))
-                    .map((n) => (
-                      <option key={n} value={n}>
-                        +{7 * n}s{extendFor.veo?.seconds ? ` (→ ${extendFor.veo.seconds + 7 * n}s)` : ""}
-                      </option>
-                    ))}
+                    .filter((n) => (extendFor.veo?.seconds || 8) + extendStep(extendModel, vInfo) * n
+                      <= maxTotal(extendModel, vInfo))
+                    .map((n) => {
+                      const add = extendStep(extendModel, vInfo) * n;
+                      const res = extendFor.veo?.resolution || "720p";
+                      const cost = videoCost(extendModel, res, add, vInfo);
+                      return (
+                        <option key={n} value={n}>
+                          +{add}s{extendFor.veo?.seconds ? ` (→ ~${Math.round(extendFor.veo.seconds + add)}s)` : ""}
+                          {cost != null ? ` · ≈ ${usd(cost)}` : ""}
+                        </option>
+                      );
+                    })}
                 </select>
               </label>
               <div className="extend-actions">
@@ -1003,11 +1109,16 @@ export default function Creative() {
                   {a.kind === "video" && a.veo && (
                     <button
                       className="btn"
-                      disabled={extendBusy || (a.veo.resolution && a.veo.resolution !== "720p")}
+                      disabled={
+                        extendBusy ||
+                        (a.veo.provider !== "omni" && a.veo.resolution && a.veo.resolution !== "720p")
+                      }
                       title={
-                        a.veo.resolution && a.veo.resolution !== "720p"
-                          ? `Veo only extends 720p videos (this one is ${a.veo.resolution})`
-                          : "Extend by 7s with Veo"
+                        a.veo.provider === "omni"
+                          ? "Extend by 10s with Omni Flash"
+                          : a.veo.resolution && a.veo.resolution !== "720p"
+                            ? `Veo only extends 720p videos (this one is ${a.veo.resolution})`
+                            : "Extend by 7s with Veo"
                       }
                       onClick={() => {
                         openExtend(a);
