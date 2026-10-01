@@ -21,10 +21,9 @@ from ..creative import (
     compose_prompt,
     gallery,
     generate_image,
-    start_video,
     style_references,
-    video_status,
 )
+from ..veo import VeoError, extend_video, start_video, video_kit, video_status
 
 router = APIRouter(prefix="/api/creative", tags=["creative"], dependencies=[Depends(require_session)])
 
@@ -47,6 +46,13 @@ class ImageRequest(BaseModel):
     use_references: bool = True
 
 
+class ExtendRequest(BaseModel):
+    # The gallery file to continue; it must be a Veo video made here.
+    source: str = Field(min_length=5, max_length=300)
+    prompt: str = Field(min_length=3, max_length=2000)
+    model: str | None = None
+
+
 class IdeasRequest(BaseModel):
     account_id: str | None = None
     brief: str = Field(default="", max_length=2000)
@@ -56,6 +62,8 @@ class IdeasRequest(BaseModel):
     service: str = Field(default="", max_length=200)
     language: str = Field(default="fr", pattern=r"^(fr|darija|ar|fr\+darija)$")
     placement: str = Field(default="", max_length=60)
+    # Video length in scenes: 8s, then +7s per Veo extension.
+    video_scenes: int = Field(default=1, ge=1, le=8)
     preset: str | None = None
     since: str | None = None
     until: str | None = None
@@ -63,14 +71,23 @@ class IdeasRequest(BaseModel):
 
 class VideoRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=4000)
-    size: str = "portrait"
-    seconds: str = "4"
+    size: str = Field(default="portrait", pattern="^(portrait|landscape)$")
+    seconds: str = Field(default="8", pattern="^(4|6|8)$")
+    resolution: str = Field(default="720p", pattern="^(720p|1080p)$")
+    model: str | None = None
+    # A generated image (gallery file name) to use as the first frame.
+    start_image: str | None = None
     use_persona: bool = True
 
 
 def _handle(cause: Exception) -> HTTPException:
     if isinstance(cause, CreativeNotConfigured):
         return HTTPException(status_code=503, detail={"message": str(cause)})
+    if isinstance(cause, VeoError):
+        return HTTPException(
+            status_code=400 if cause.status == 400 else 502,
+            detail={"message": f"Veo error ({cause.status}): {cause.message}"},
+        )
     if isinstance(cause, openai.APIStatusError):
         # Content-policy refusals arrive as 400s with a usable message; passing
         # it through beats a generic "generation failed".
@@ -86,7 +103,7 @@ def _handle(cause: Exception) -> HTTPException:
 @router.get("/brand")
 def brand():
     """Persona status, available logos and the valid size/duration options."""
-    return brand_kit()
+    return {**brand_kit(), **video_kit()}
 
 
 @router.post("/preview-prompt")
@@ -127,16 +144,26 @@ async def image(body: ImageRequest):
 
 @router.post("/video")
 async def video(body: VideoRequest):
-    """Start a render. Sora takes minutes, so this returns a job to poll."""
+    """Start a Veo render. It takes a minute or more, so this returns a job to poll."""
     try:
         return await start_video(
-            body.prompt, size=body.size, seconds=body.seconds, use_persona=body.use_persona
+            body.prompt, size=body.size, seconds=body.seconds, resolution=body.resolution,
+            model=body.model, start_image=body.start_image, use_persona=body.use_persona,
         )
     except Exception as cause:  # noqa: BLE001
         raise _handle(cause) from cause
 
 
-@router.get("/video/{video_id}")
+@router.post("/video/extend")
+async def video_extend(body: ExtendRequest):
+    """Continue a Veo video by 7 seconds. Returns a job to poll like /video."""
+    try:
+        return await extend_video(body.source, body.prompt, model=body.model)
+    except Exception as cause:  # noqa: BLE001
+        raise _handle(cause) from cause
+
+
+@router.get("/video/{video_id:path}")
 async def video_poll(video_id: str):
     try:
         return await video_status(video_id)
@@ -166,6 +193,7 @@ async def ideas(body: IdeasRequest):
             brief=body.brief, count=body.count, use_trends=body.use_trends,
             audience=body.audience, service=body.service,
             language=body.language, placement=body.placement,
+            video_scenes=body.video_scenes,
         )
     except PromptGenNotConfigured as cause:
         raise HTTPException(status_code=503, detail={"message": str(cause)}) from cause

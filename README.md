@@ -292,7 +292,9 @@ best-converting ads carry body copy about gold and silver investments.
 
 Brand-aware images and video from a prompt: `backend/app/creative.py`,
 `backend/app/routers/creative.py`, `frontend/src/pages/Creative.jsx`. Images via
-`gpt-image-1`, video via `sora-2` (`OPENAI_IMAGE_MODEL` / `OPENAI_VIDEO_MODEL`).
+`gpt-image-2.5-flare` (`OPENAI_IMAGE_MODEL`); video via Google Veo 3.1 through the
+Gemini API (`GEMINI_API_KEY`, `GEMINI_VIDEO_MODEL`, `backend/app/veo.py`) -- OpenAI shut the
+Sora API down on 2026-09-24. A video can start from a generated ad as its first frame.
 
 **The logo is composited, not drawn.** Image models garble logos and small type,
 so the image is generated clean — the prompt explicitly asks for empty corner

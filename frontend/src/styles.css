@@ -1623,3 +1623,28 @@ tr.is-child td { background: var(--surface-2); }
   .chat-history { max-height: 220px; }
   .chat-shell .chat { height: calc(100vh - 140px); }
 }
+
+/* Video: first-frame preview and the gallery "animate" button */
+.start-frame img { width: 54px; height: 54px; object-fit: cover; background: none; }
+.asset figcaption { justify-content: flex-start; }
+.asset figcaption .asset-meta { margin-right: auto; }
+
+/* Video extension panel */
+.extend-panel { margin-bottom: 14px; display: grid; gap: 10px; }
+.extend-head { display: flex; gap: 14px; align-items: flex-start; }
+.extend-head video {
+  width: 72px; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 8px;
+  background: #000; flex-shrink: 0;
+}
+.extend-head p { margin: 4px 0 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+.extend-actions { display: flex; gap: 8px; margin-left: auto; align-self: flex-end; }
+
+/* Multi-scene video plan */
+.scene-plan { margin-top: 10px; display: grid; gap: 8px; }
+.scene-plan-note { margin: 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+.scene-row { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.scene-row textarea { resize: vertical; font-size: 13px; }
+.scene-label { font-size: 12px; font-weight: 700; color: var(--text); padding-top: 9px; display: grid; }
+.scene-label small { font-weight: 500; color: var(--text-muted); }
+.scene-add { justify-self: start; }
+@media (max-width: 600px) { .scene-row { grid-template-columns: minmax(0, 1fr) auto; } .scene-label { grid-column: 1 / -1; padding: 0; } }

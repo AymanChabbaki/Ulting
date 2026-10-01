@@ -137,11 +137,55 @@ and CTA positions; the benefit band if `image_benefits` is not empty.
 benefit labels if any - identical to the image_* fields.
 5. Exclusions - no other text, no other logos, no watermarks, no stock handshakes.
 
-## video_prompt (English, vertical 9:16, 8 seconds, three beats)
+## Video: a scene plan for Google Veo 3.1 (English prompts)
 
-"0-2s: ... | 2-5s: ... | 5-8s: ..." - say what is on screen, what moves and what \
-the camera does in each beat. The 0-2s beat is the hook and must work with the \
-sound off. No on-screen text, no logos.
+The video is rendered by Veo 3.1 as ONE continuous shot built scene by scene: \
+scene 1 is generated from scratch (8 seconds); every later scene is a Veo \
+*extension* that continues from the exact last frame of the previous one and \
+adds 7 seconds. Veo has no memory between scenes except that last frame, and \
+it renders literally what it reads - anything vague, it invents. So the plan \
+must leave nothing to chance.
+
+`video_continuity` - the bible, 80-140 words, written once and pasted word for \
+word into every scene prompt: every recurring person (age, build, skin tone, \
+hair, exact clothing and colours - e.g. "a Moroccan man in his 40s, short black \
+hair, trimmed beard, navy suit, white open-collar shirt"), every recurring \
+object (exact colour, material, markings), the location, time of day, light \
+direction and colour temperature, palette, lens look and film style. Never \
+name a person who is not described here.
+
+`video_scenes` - exactly the number of scenes requested, in order. Each \
+`prompt` is self-contained, 150-230 words, and covers, in this order:
+1. Timing - scene 1: "[00:00-00:02] ... [00:02-00:05] ... [00:05-00:08] ..."; \
+later scenes: "[00:00-00:03] ... [00:03-00:07] ..." relative to the scene. \
+For every beat: who does exactly what, how fast, from where to where.
+2. Start state - scene 1 describes the opening frame (the scroll-stopping \
+hook, readable with sound off); every later scene begins "Continuing from the \
+previous shot, where ..." and restates precisely what is in frame at that moment.
+3. Camera - shot size, angle, lens (e.g. 35mm), movement with direction and \
+speed (slow dolly-in, handheld follow left to right, static tripod), focus.
+4. The continuity bible, pasted verbatim.
+5. Setting detail - named real place type (Tanger Med container terminal, \
+bonded warehouse near Casablanca, customs office, factory floor in Guangzhou).
+6. Lighting and colour - source, direction, quality; navy, white, brand blue \
+#0b5cb8, a small natural yellow #f8c000 accent (hi-vis vest, strap, sign).
+7. Audio - ambient sound and specific effects (container clang, forklift \
+beeps, gulls, keyboard), music mood, and any spoken line in double quotes \
+with who says it, in the copy language - at most ~14 words per scene so it \
+fits; say "no dialogue" when there is none.
+8. End state - exactly what is in frame on the last second, because the next \
+scene starts from it.
+9. Exclusions - "No on-screen text, no subtitles, no captions, no logos, no \
+brand names, no watermarks; no extra people; no morphing or sudden cuts; \
+faces and hands stay natural and consistent."
+
+Rules: one continuous camera - no cuts, no scene jumps, no flashbacks; each \
+scene moves the story one step (hook -> problem -> ULTEx steps in -> \
+resolution and next step). Realistic physics and plausible logistics. Keep \
+people consistent and few (max 2 on screen). Never ask Veo to write text, \
+numbers or a logo: the brand and the offer are carried by the voice-over and \
+the ad copy. The last scene ends on a calm, clean, stable frame. `beat` is a \
+5-10 word summary of the scene in English.
 
 ## Accountability
 
@@ -199,14 +243,26 @@ IDEA_SCHEMA = {
                     "image_cta": {"type": "string"},
                     "image_benefits": {"type": "array", "items": {"type": "string"}},
                     "image_prompt": {"type": "string"},
-                    "video_prompt": {"type": "string"},
+                    "video_continuity": {"type": "string"},
+                    "video_scenes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "beat": {"type": "string"},
+                                "prompt": {"type": "string"},
+                            },
+                            "required": ["beat", "prompt"],
+                            "additionalProperties": False,
+                        },
+                    },
                     "why": {"type": "string"},
                     "test_hypothesis": {"type": "string"},
                 },
                 "required": [
                     "title", "framework", "audience", "insight", "hook", "primary_text",
                     "headline", "cta", "placement", "image_headline", "image_subline",
-                    "image_cta", "image_benefits", "image_prompt", "video_prompt", "why",
+                    "image_cta", "image_benefits", "image_prompt", "video_continuity", "video_scenes", "why",
                     "test_hypothesis",
                 ],
                 "additionalProperties": False,
@@ -454,6 +510,7 @@ async def generate_ideas(
     service: str = "",
     language: str = "fr",
     placement: str = "",
+    video_scenes: int = 1,
 ) -> dict[str, Any]:
     """Complete ad concepts, grounded in this account's real ads."""
     client = _client()
@@ -527,7 +584,9 @@ async def generate_ideas(
     parts.append(
         f"Write every piece of copy, including the on-image text, in {language_label}. "
         "Prompts stay in English, with the on-image text quoted exactly. "
-        f"Return exactly {count} ideas, each with a different framework and insight."
+        f"Return exactly {count} ideas, each with a different framework and insight. "
+        f"Each idea's video is exactly {video_scenes} scene{'s' if video_scenes > 1 else ''} "
+        f"({8 + 7 * (video_scenes - 1)} seconds in total: 8s, then +7s per extension)."
     )
 
     references = _reference_inputs()
@@ -572,6 +631,10 @@ async def generate_ideas(
         payload = json.loads(response.output_text)
     except json.JSONDecodeError as cause:
         raise RuntimeError(f"Idea generator returned unparseable JSON: {cause}") from cause
+
+    # The schema cannot pin an array length; hold the model to the count asked.
+    for idea in payload.get("ideas", []):
+        idea["video_scenes"] = (idea.get("video_scenes") or [])[:video_scenes]
 
     searched = any(getattr(i, "type", "") == "web_search_call" for i in (response.output or []))
     return {

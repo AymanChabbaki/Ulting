@@ -52,5 +52,5 @@ def health():
         "strategistConfigured": bool(settings.openai_api_key),
         "strategistModel": settings.openai_model,
         "imageModel": settings.openai_image_model,
-        "videoModel": settings.openai_video_model,
+        "videoModel": settings.gemini_video_model if settings.gemini_api_key else None,
     }

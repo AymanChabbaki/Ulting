@@ -14,15 +14,15 @@ logo rather than reproducing it, so it is not the default.
 every request, so the brand direction can be edited without a restart or a
 deploy.
 
-**Video is a job, not a request.** Sora renders take minutes, so the route
-starts the job and the client polls. Nothing blocks an HTTP worker for the
-duration of a render.
+Video lives in `veo.py` (Google Veo via the Gemini API) since OpenAI shut the
+Sora API down on 2026-09-24.
 """
 
 from __future__ import annotations
 
 import base64
 import io
+import json
 import os
 import re
 import uuid
@@ -43,13 +43,10 @@ OUTPUT_DIR = Path(os.environ.get("ULTING_DATA_DIR", REPO_ROOT / "backend")) / "g
 
 # Exact values from the installed SDK's enums -- not guesses.
 IMAGE_SIZES = {"square": "1024x1024", "portrait": "1024x1536", "landscape": "1536x1024"}
-VIDEO_SIZES = {"portrait": "720x1280", "landscape": "1280x720"}
-VIDEO_SECONDS = ("4", "8", "12")
 
 # The 2.5 family is the only one whose `quality` goes above "high" (to
 # "xhigh"/"max"), per the installed SDK's own docs -- and this key has it.
 DEFAULT_IMAGE_MODEL = "gpt-image-2.5-flare"
-DEFAULT_VIDEO_MODEL = "sora-2"
 
 IMAGE_MODELS = [
     "gpt-image-2.5-flare",
@@ -188,8 +185,6 @@ def brand_kit() -> dict[str, Any]:
         "qualityByModel": {m: quality_options(m) for m in IMAGE_MODELS},
         "logoModes": ["model", "overlay", "none"],
         "imageSizes": list(IMAGE_SIZES),
-        "videoSizes": list(VIDEO_SIZES),
-        "videoSeconds": list(VIDEO_SECONDS),
     }
 
 
@@ -589,83 +584,6 @@ async def _edit_with_images(client, model: str, inputs, prompt: str, size: str, 
     return response.data[0]
 
 
-async def start_video(
-    prompt: str,
-    *,
-    size: str = "portrait",
-    seconds: str = "4",
-    use_persona: bool = True,
-    model: str | None = None,
-) -> dict[str, Any]:
-    """Kick off a render. Returns immediately -- Sora takes minutes."""
-    client = _client()
-    settings = get_settings()
-    if seconds not in VIDEO_SECONDS:
-        seconds = "4"
-    try:
-        video = await client.videos.create(
-            model=model or settings.openai_video_model or DEFAULT_VIDEO_MODEL,
-            prompt=compose_prompt(prompt, kind="video", use_persona=use_persona),
-            size=VIDEO_SIZES.get(size, VIDEO_SIZES["portrait"]),
-            seconds=seconds,
-        )
-    except openai.NotFoundError as cause:
-        # OpenAI shut the Sora API down on 2026-09-24; the whole /videos
-        # endpoint now answers a bare 404, which reads like our bug.
-        raise CreativeNotConfigured(
-            "OpenAI shut down the Sora video API on 24 September 2026, so video "
-            "generation is unavailable until another video provider is connected."
-        ) from cause
-    return {
-        "id": video.id,
-        "status": video.status,
-        "progress": getattr(video, "progress", 0),
-        "kind": "video",
-        "prompt": prompt,
-        "seconds": seconds,
-        "size": VIDEO_SIZES.get(size, VIDEO_SIZES["portrait"]),
-        "model": video.model,
-    }
-
-
-async def video_status(video_id: str) -> dict[str, Any]:
-    """Poll a render, downloading it once it completes."""
-    client = _client()
-    video = await client.videos.retrieve(video_id)
-    payload: dict[str, Any] = {
-        "id": video.id,
-        "status": video.status,
-        "progress": getattr(video, "progress", 0) or 0,
-        "seconds": video.seconds,
-        "size": video.size,
-        "model": video.model,
-    }
-
-    if video.status == "failed":
-        error = getattr(video, "error", None)
-        payload["error"] = getattr(error, "message", None) or str(error or "Render failed")
-        return payload
-
-    if video.status != "completed":
-        return payload
-
-    existing = sorted(OUTPUT_DIR.glob(f"*{video.id[-8:]}.mp4"))
-    if existing:
-        name = existing[0].name
-        payload.update({"file": name, "url": f"/api/creative/asset/{name}"})
-        return payload
-
-    content = await client.videos.download_content(video.id, variant="video")
-    data = await content.aread()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    # The id tail is in the filename so a re-poll finds the existing download
-    # instead of paying to fetch it again.
-    name = f"{stamp}-{_slug(video.prompt or 'video')}-{video.id[-8:]}.mp4"
-    (OUTPUT_DIR / name).write_bytes(data)
-    payload.update({"file": name, "url": f"/api/creative/asset/{name}", "bytes": len(data)})
-    return payload
-
-
 def gallery(limit: int = 60) -> list[dict[str, Any]]:
     """Everything generated so far, newest first."""
     if not OUTPUT_DIR.exists():
@@ -675,16 +593,27 @@ def gallery(limit: int = 60) -> list[dict[str, Any]]:
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
-    return [
-        {
+    items = []
+    for p in files[:limit]:
+        item = {
             "file": p.name,
             "url": f"/api/creative/asset/{p.name}",
             "kind": "video" if p.suffix.lower() == ".mp4" else "image",
             "bytes": p.stat().st_size,
             "createdAt": datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat(),
         }
-        for p in files[:limit]
-    ]
+        # Veo videos carry a sidecar (see veo.py) -- the page needs it to know
+        # whether a video can be extended, and how long it already is.
+        sidecar = p.with_name(p.name + ".json")
+        if item["kind"] == "video" and sidecar.exists():
+            try:
+                meta = json.loads(sidecar.read_text(encoding="utf-8"))
+                item["veo"] = {k: meta.get(k) for k in (
+                    "model", "aspect", "resolution", "seconds", "extensions", "parent", "prompt")}
+            except (OSError, json.JSONDecodeError):
+                pass
+        items.append(item)
+    return items
 
 
 def asset_path(name: str) -> Path | None:

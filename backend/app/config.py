@@ -37,10 +37,12 @@ class Settings(BaseSettings):
     # Creative generation. Values must come from the SDK's own enums --
     # ImageModel and VideoModel in openai.types.
     openai_image_model: str = "gpt-image-2.5-flare"
-    openai_video_model: str = "sora-2"
     # Idea generator. A reasoning model: it brainstorms wide and discards
     # the generic before answering, which gpt-4o does not do.
     openai_creative_model: str = "gpt-5.5"
+    # Video (Google Veo through the Gemini API) -- OpenAI shut Sora down.
+    gemini_api_key: str = ""
+    gemini_video_model: str = "veo-3.1-generate-preview"
 
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 

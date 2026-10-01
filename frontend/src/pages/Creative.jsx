@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Clapperboard,
   Download,
+  FastForward,
   Lightbulb,
   Image as ImageIcon,
   Info,
@@ -16,12 +18,19 @@ import { windowQuery } from "../lib/api.js";
 /**
  * Creative studio: brand-aware images and video from a prompt.
  *
- * Video is a polled job rather than a request — Sora renders take minutes, so
- * the page starts the job and checks back. The poll is cleared on unmount so
+ * Video (Google Veo) is a polled job rather than a request — renders take a
+ * minute or more, so the page starts the job and checks back. A video can
+ * start from a generated ad, so it opens on the real logo and layout. The poll is cleared on unmount so
  * navigating away does not leave a timer running against a dead component.
  */
 
 const LOGO_POSITIONS = ["auto", "bottom-right", "bottom-left", "top-right", "top-left", "bottom-center"];
+
+const VIDEO_MODEL_LABELS = {
+  "veo-3.1-generate-preview": "Veo 3.1 — best quality",
+  "veo-3.1-fast-generate-preview": "Veo 3.1 fast — cheaper",
+  "veo-3.1-lite-generate-preview": "Veo 3.1 lite — cheapest drafts",
+};
 
 const LOGO_MODES = [
   { value: "model", label: "AI places the logo", hint: "Logo sent to the model, integrated into the scene" },
@@ -69,6 +78,10 @@ export default function Creative() {
   const [ideaService, setIdeaService] = useState("");
   const [ideaLanguage, setIdeaLanguage] = useState("fr");
   const [ideaCount, setIdeaCount] = useState(4);
+  const [ideaScenes, setIdeaScenes] = useState(3);
+  // Scenes 2..N of a video: each is a Veo extension (+7s) of the one before.
+  const [scenePlan, setScenePlan] = useState([]);
+  const [chainRunning, setChainRunning] = useState(false);
   const [copied, setCopied] = useState(null);
   const [prompt, setPrompt] = useState("");
   const [brand, setBrand] = useState(null);
@@ -79,7 +92,19 @@ export default function Creative() {
   const [logoMode, setLogoMode] = useState("model");
   const [design, setDesign] = useState("full_ad");
   const [useReferences, setUseReferences] = useState(true);
-  const [seconds, setSeconds] = useState("4");
+  const [seconds, setSeconds] = useState("8");
+  const [videoModel, setVideoModel] = useState("");
+  const [resolution, setResolution] = useState("720p");
+  const [startImage, setStartImage] = useState("");
+  // Extension panel: which gallery video, what happens next, how many +7s steps.
+  const [extendFor, setExtendFor] = useState(null);
+  const [extendPrompt, setExtendPrompt] = useState("");
+  const [extendSteps, setExtendSteps] = useState(1);
+  const [extendModel, setExtendModel] = useState("veo-3.1-fast-generate-preview");
+  const [extendStatus, setExtendStatus] = useState(null);
+  const [extendBusy, setExtendBusy] = useState(false);
+  const [extendError, setExtendError] = useState(null);
+  const extendCancel = useRef(false);
   const [usePersona, setUsePersona] = useState(true);
   const [logo, setLogo] = useState("");
   const [logoPosition, setLogoPosition] = useState("auto");
@@ -103,6 +128,7 @@ export default function Creative() {
         setModel(b.defaultImageModel || "");
         const q = b.qualityByModel?.[b.defaultImageModel];
         setQuality(q ? q[q.length - 1] : "high");
+        setVideoModel(b.defaultVideoModel || "");
       })
       .catch(() => {});
     loadGallery();
@@ -142,6 +168,112 @@ export default function Creative() {
       setShowPrompt(r.prompt);
     } catch (cause) {
       setError(cause.message);
+    }
+  }
+
+  /** Poll one Veo job until it finishes; resolves with its final payload. */
+  async function waitForVideo(id, onProgress) {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 6000));
+      if (extendCancel.current) throw new Error("Stopped. The render already started still finishes on Google's side.");
+      const r = await fetch(`/api/creative/video/${id}`, { credentials: "same-origin" });
+      const v = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(v?.detail?.message || `Polling failed (${r.status})`);
+      if (v.status === "completed") return v;
+      if (v.status === "failed") throw new Error(v.error || "Render failed");
+      onProgress?.(v);
+    }
+  }
+
+  /**
+   * Run N extensions back to back: each step continues the file the previous
+   * step produced, so the result is one continuous shot. Every step is its own
+   * file in the gallery, so a bad step can be retried from the one before.
+   */
+  async function runExtensions() {
+    if (!extendFor || !extendPrompt.trim() || extendBusy) return;
+    setExtendBusy(true);
+    setExtendError(null);
+    extendCancel.current = false;
+    let source = extendFor.file;
+    let length = extendFor.veo?.seconds || null;
+    try {
+      for (let step = 1; step <= extendSteps; step += 1) {
+        const target = length ? ` → ${length + 7}s` : "";
+        setExtendStatus(`Step ${step}/${extendSteps}: starting${target}…`);
+        const job = await post("/api/creative/video/extend", {
+          source,
+          prompt: extendPrompt,
+          model: extendModel,
+        });
+        const started = Date.now();
+        const done = await waitForVideo(job.id, () => {
+          const secs = Math.round((Date.now() - started) / 1000);
+          setExtendStatus(`Step ${step}/${extendSteps}: rendering${target} · ${secs}s`);
+        });
+        source = done.file;
+        length = done.seconds || (length ? length + 7 : null);
+        loadGallery();
+      }
+      setExtendStatus(`Done${length ? ` — ${length}s video` : ""}. It is at the top of the gallery.`);
+      setExtendFor(null);
+    } catch (cause) {
+      setExtendError(cause.message);
+      setExtendStatus(null);
+    } finally {
+      setExtendBusy(false);
+      loadGallery();
+    }
+  }
+
+  function openExtend(asset) {
+    setExtendFor(asset);
+    setExtendError(null);
+    setExtendStatus(null);
+    const m = asset.veo?.model;
+    setExtendModel(brand?.extendModels?.includes(m) ? m : "veo-3.1-fast-generate-preview");
+    const room = Math.floor(((brand?.maxExtendableSeconds || 141) - (asset.veo?.seconds || 8)) / 7) + 1;
+    setExtendSteps((s) => Math.max(1, Math.min(s, room)));
+  }
+
+  /**
+   * Render a multi-scene video: scene 1 from the main prompt (8s, 720p so it
+   * can be extended), then each later scene as an extension of the previous
+   * result. One continuous shot, ~8 + 7 x (N-1) seconds.
+   */
+  async function runScenePlan() {
+    const later = scenePlan.map((s) => s.trim()).filter(Boolean);
+    const total = later.length + 1;
+    const chainModel = videoModel.includes("lite") ? "veo-3.1-fast-generate-preview" : videoModel;
+    extendCancel.current = false;
+    setChainRunning(true);
+    setExtendStatus(null);
+    const tick = (label) => {
+      const started = Date.now();
+      return () => setStatus(`${label} · ${Math.round((Date.now() - started) / 1000)}s`);
+    };
+    try {
+      setStatus(`Scene 1/${total}: starting…`);
+      const first = await post("/api/creative/video", {
+        prompt, size, seconds: "8", resolution: "720p", model: chainModel,
+        start_image: startImage || null, use_persona: usePersona,
+      });
+      let done = await waitForVideo(first.id, tick(`Scene 1/${total}: rendering (8s)`));
+      loadGallery();
+      let source = done.file;
+      let length = done.seconds || 8;
+      for (let i = 0; i < later.length; i += 1) {
+        const label = `Scene ${i + 2}/${total}: rendering (→ ${length + 7}s)`;
+        setStatus(`Scene ${i + 2}/${total}: starting…`);
+        const job = await post("/api/creative/video/extend", { source, prompt: later[i], model: chainModel });
+        done = await waitForVideo(job.id, tick(label));
+        source = done.file;
+        length = done.seconds || length + 7;
+        loadGallery();
+      }
+      setExtendStatus(`Done — ${total} scenes, ${length}s video. It is at the top of the gallery; the shorter steps are kept too.`);
+    } finally {
+      setChainRunning(false);
     }
   }
 
@@ -194,10 +326,20 @@ export default function Creative() {
         setStatus(null);
         setBusy(false);
         loadGallery();
+      } else if (scenePlan.some((s) => s.trim())) {
+        await runScenePlan();
+        setStatus(null);
+        setBusy(false);
       } else {
         setStatus("Starting render…");
         const job = await post("/api/creative/video", {
-          prompt, size, seconds, use_persona: usePersona,
+          prompt,
+          size,
+          seconds,
+          resolution,
+          model: videoModel,
+          start_image: startImage || null,
+          use_persona: usePersona,
         });
         setStatus("Rendering… 0%");
         pollVideo(job.id);
@@ -221,6 +363,7 @@ export default function Creative() {
         audience: ideaAudience,
         service: ideaService,
         language: ideaLanguage,
+        video_scenes: ideaScenes,
         ...Object.fromEntries(new URLSearchParams(windowQuery(win))),
       });
       setIdeas(payload);
@@ -236,8 +379,20 @@ export default function Creative() {
     const asVideo = which === "video";
     setKind(asVideo ? "video" : "image");
     setSize(asVideo ? "portrait" : idea.placement === "story_reel_vertical" ? "portrait" : "square");
-    if (!asVideo) setDesign("full_ad");
-    setPrompt(asVideo ? idea.video_prompt : ideaImagePrompt(idea));
+    if (!asVideo) {
+      setDesign("full_ad");
+      setPrompt(ideaImagePrompt(idea));
+    } else {
+      const scenes = idea.video_scenes || [];
+      setPrompt(scenes[0]?.prompt || idea.video_prompt || "");
+      setScenePlan(scenes.slice(1).map((s) => s.prompt));
+      setStartImage("");
+      setSeconds("8");
+      if (scenes.length > 1) {
+        setResolution("720p");
+        if (videoModel.includes("lite")) setVideoModel("veo-3.1-fast-generate-preview");
+      }
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -312,6 +467,40 @@ export default function Creative() {
           onChange={(e) => setPrompt(e.target.value)}
         />
 
+        {kind === "video" && (
+          <div className="scene-plan">
+            {scenePlan.length > 0 && (
+              <p className="scene-plan-note">
+                The prompt above is <strong>scene 1</strong> (8s). Each scene below continues the
+                previous one from its last frame (+7s). Total <strong>{8 + 7 * scenePlan.length}s</strong>,
+                rendered at 720p, one scene after another.
+              </p>
+            )}
+            {scenePlan.map((s, i) => (
+              <div key={i} className="scene-row">
+                <span className="scene-label">Scene {i + 2}<small>+7s</small></span>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={s}
+                  placeholder="What happens next, from the last frame of the previous scene…"
+                  onChange={(e) => setScenePlan(scenePlan.map((x, j) => (j === i ? e.target.value : x)))}
+                />
+                <button className="btn" title="Remove scene" onClick={() => setScenePlan(scenePlan.filter((_, j) => j !== i))}>
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              className="btn scene-add"
+              onClick={() => setScenePlan([...scenePlan, ""])}
+              disabled={scenePlan.length >= 19 || busy}
+            >
+              + Add scene (+7s)
+            </button>
+          </div>
+        )}
+
         <div className="studio-examples">
           {EXAMPLES.map((e) => (
             <button key={e} className="chip" onClick={() => setPrompt(e)}>
@@ -344,14 +533,62 @@ export default function Creative() {
               </label>
             </>
           ) : (
-            <label className="ctl">
-              <span>Duration</span>
-              <select className="select" value={seconds} onChange={(e) => setSeconds(e.target.value)}>
-                {(brand?.videoSeconds || ["4", "8", "12"]).map((s) => (
-                  <option key={s} value={s}>{s}s</option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label className="ctl">
+                <span>Model</span>
+                <select
+                  className="select"
+                  value={videoModel}
+                  onChange={(e) => {
+                    setVideoModel(e.target.value);
+                    const allowed = brand?.videoResolutionsByModel?.[e.target.value];
+                    if (allowed && !allowed.includes(resolution)) setResolution("720p");
+                  }}
+                >
+                  {(brand?.videoModels || []).map((m) => (
+                    <option key={m} value={m}>{VIDEO_MODEL_LABELS[m] || m}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="ctl">
+                <span>Resolution</span>
+                <select
+                  className="select"
+                  value={resolution}
+                  onChange={(e) => {
+                    setResolution(e.target.value);
+                    // Veo renders 1080p and 4k only at 8 seconds.
+                    if (e.target.value !== "720p") setSeconds("8");
+                  }}
+                >
+                  {(brand?.videoResolutionsByModel?.[videoModel] || brand?.videoResolutions || ["720p", "1080p"])
+                    .map((r) => <option key={r} value={r}>{r === "720p" ? "720p (extendable)" : r}</option>)}
+                </select>
+              </label>
+              <label className="ctl">
+                <span>Duration</span>
+                <select className="select" value={seconds} onChange={(e) => setSeconds(e.target.value)}>
+                  {(brand?.videoSeconds || ["4", "6", "8"]).map((s) => (
+                    <option key={s} value={s} disabled={resolution !== "720p" && s !== "8"}>{s}s</option>
+                  ))}
+                </select>
+              </label>
+              <label className="ctl">
+                <span>Start from</span>
+                <select className="select" value={startImage} onChange={(e) => setStartImage(e.target.value)}>
+                  <option value="">Prompt only</option>
+                  {assets.filter((a) => a.kind === "image").map((a) => (
+                    <option key={a.file} value={a.file}>{a.file.replace(/^\d{8}-\d{6}-/, "").slice(0, 48)}</option>
+                  ))}
+                </select>
+              </label>
+              {startImage && (
+                <div className="ctl logo-preview start-frame">
+                  <span>First frame</span>
+                  <img src={`/api/creative/asset/${encodeURIComponent(startImage)}`} alt="First frame" />
+                </div>
+              )}
+            </>
           )}
 
           {kind === "image" && (
@@ -446,16 +683,29 @@ export default function Creative() {
           <button className="btn" onClick={previewPrompt} disabled={!prompt.trim()}>
             <Wand2 size={15} /> Preview full prompt
           </button>
+          {chainRunning && (
+            <button className="btn" onClick={() => { extendCancel.current = true; }}>
+              Stop after this scene
+            </button>
+          )}
           <button className="btn btn-primary" onClick={generate} disabled={!prompt.trim() || busy}>
             {busy ? <Loader size={15} className="spin" /> : <Sparkles size={15} />}
             {busy ? status || "Working…" : `Generate ${kind}`}
           </button>
         </div>
 
+        {kind === "video" && brand && !brand.videoProvider && (
+          <div className="warn-box" style={{ marginTop: 12 }}>
+            <Info size={16} />
+            <span>Video needs <code>GEMINI_API_KEY</code> in <code>.env.local</code>.</span>
+          </div>
+        )}
         {kind === "video" && (
           <p className="studio-note">
-            Video renders take a few minutes and cost noticeably more than images. The job keeps
-            running if you navigate away — it will appear in the gallery when done.
+            Google Veo 3.1, with sound. Renders take 1–3 minutes and are billed per second of
+            video — Veo 3.1 costs several times more than fast or lite, so draft with lite. Start
+            from one of your generated ads to keep the real logo and text. The job keeps running if
+            you navigate away — it appears in the gallery when done.
           </p>
         )}
 
@@ -520,6 +770,14 @@ export default function Creative() {
             <span>Ideas</span>
             <select className="select" value={ideaCount} onChange={(e) => setIdeaCount(Number(e.target.value))}>
               {[2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <label className="ctl">
+            <span>Video scenes</span>
+            <select className="select" value={ideaScenes} onChange={(e) => setIdeaScenes(Number(e.target.value))}>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <option key={n} value={n}>{n} scene{n > 1 ? "s" : ""} · {8 + 7 * (n - 1)}s</option>
+              ))}
             </select>
           </label>
           <label className="ctl ctl-check">
@@ -623,9 +881,17 @@ export default function Creative() {
                   )}
 
                   <details className="idea-prompts">
-                    <summary>Image & video prompts</summary>
+                    <summary>Image prompt & video scenes{idea.video_scenes?.length ? ` (${idea.video_scenes.length})` : ""}</summary>
                     <p><strong>Image:</strong> {idea.image_prompt}</p>
-                    <p><strong>Video:</strong> {idea.video_prompt}</p>
+                    {idea.video_continuity && (
+                      <p><strong>Video continuity:</strong> {idea.video_continuity}</p>
+                    )}
+                    {(idea.video_scenes || []).map((sc, k) => (
+                      <p key={k}>
+                        <strong>Scene {k + 1} ({k === 0 ? "8s" : "+7s"}) — {sc.beat}:</strong> {sc.prompt}
+                      </p>
+                    ))}
+                    {idea.video_prompt && <p><strong>Video:</strong> {idea.video_prompt}</p>}
                   </details>
 
                   <p className="idea-why"><strong>Based on:</strong> {idea.why}</p>
@@ -635,7 +901,11 @@ export default function Creative() {
                     <button className="btn btn-primary" onClick={() => useIdea(idea, "image")}>
                       Make image
                     </button>
-                    <button className="btn" onClick={() => useIdea(idea, "video")}>Make video</button>
+                    <button className="btn" onClick={() => useIdea(idea, "video")}>
+                      {idea.video_scenes?.length > 1
+                        ? `Make video (${idea.video_scenes.length} scenes · ${8 + 7 * (idea.video_scenes.length - 1)}s)`
+                        : "Make video"}
+                    </button>
                     <button className="btn" onClick={() => copyAd(idea, i)}>
                       {copied === i ? "Copied" : "Copy ad text"}
                     </button>
@@ -653,6 +923,65 @@ export default function Creative() {
           <button className="btn" onClick={loadGallery} style={{ marginLeft: "auto" }}>Refresh</button>
         </div>
 
+        {extendStatus && !extendFor && <div className="studio-note" style={{ marginBottom: 12 }}>{extendStatus}</div>}
+
+        {extendFor && (
+          <div className="card card-pad extend-panel">
+            <div className="extend-head">
+              <video src={extendFor.url} muted preload="metadata" />
+              <div>
+                <strong>Extend this video</strong>
+                <p>
+                  Veo continues it from the last frame, as one continuous shot — +7s per step.
+                  {extendFor.veo?.seconds ? ` Now ${extendFor.veo.seconds}s.` : ""} 720p only, up to
+                  ~148s in total. Each step is saved as a new video; the original is kept.
+                </p>
+              </div>
+            </div>
+            <textarea
+              className="input studio-prompt"
+              rows={2}
+              placeholder="What happens next — e.g. 'the camera follows the container onto a truck leaving Tanger Med, ends on a calm wide shot of the port at sunset'"
+              value={extendPrompt}
+              onChange={(e) => setExtendPrompt(e.target.value)}
+              disabled={extendBusy}
+            />
+            <div className="studio-controls" style={{ borderTop: "none", paddingTop: 0 }}>
+              <label className="ctl">
+                <span>Model</span>
+                <select className="select" value={extendModel} onChange={(e) => setExtendModel(e.target.value)} disabled={extendBusy}>
+                  {(brand?.extendModels || []).map((m) => <option key={m} value={m}>{VIDEO_MODEL_LABELS[m] || m}</option>)}
+                </select>
+              </label>
+              <label className="ctl">
+                <span>Steps</span>
+                <select className="select" value={extendSteps} onChange={(e) => setExtendSteps(Number(e.target.value))} disabled={extendBusy}>
+                  {Array.from({ length: 20 }, (_, i) => i + 1)
+                    .filter((n) => (extendFor.veo?.seconds || 8) + 7 * (n - 1) <= (brand?.maxExtendableSeconds || 141))
+                    .map((n) => (
+                      <option key={n} value={n}>
+                        +{7 * n}s{extendFor.veo?.seconds ? ` (→ ${extendFor.veo.seconds + 7 * n}s)` : ""}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <div className="extend-actions">
+                {extendBusy ? (
+                  <button className="btn" onClick={() => { extendCancel.current = true; }}>Stop after this step</button>
+                ) : (
+                  <button className="btn" onClick={() => setExtendFor(null)}>Cancel</button>
+                )}
+                <button className="btn btn-primary" onClick={runExtensions} disabled={extendBusy || !extendPrompt.trim()}>
+                  {extendBusy ? <Loader size={15} className="spin" /> : <FastForward size={15} />}
+                  {extendBusy ? "Extending…" : "Extend"}
+                </button>
+              </div>
+            </div>
+            {extendStatus && <p className="studio-note">{extendStatus}</p>}
+            {extendError && <div className="error-box" style={{ marginTop: 10 }}>{extendError}</div>}
+          </div>
+        )}
+
         {assets.length === 0 ? (
           <div className="card empty">Nothing generated yet.</div>
         ) : (
@@ -666,8 +995,42 @@ export default function Creative() {
                 )}
                 <figcaption>
                   <span className="asset-meta">
-                    {a.kind} · {(a.bytes / 1024 / 1024).toFixed(1)} MB
+                    {a.kind}
+                    {a.veo?.seconds ? ` · ${a.veo.seconds}s` : ""}
+                    {a.veo?.resolution ? ` · ${a.veo.resolution}` : ""}
+                    {" · "}{(a.bytes / 1024 / 1024).toFixed(1)} MB
                   </span>
+                  {a.kind === "video" && a.veo && (
+                    <button
+                      className="btn"
+                      disabled={extendBusy || (a.veo.resolution && a.veo.resolution !== "720p")}
+                      title={
+                        a.veo.resolution && a.veo.resolution !== "720p"
+                          ? `Veo only extends 720p videos (this one is ${a.veo.resolution})`
+                          : "Extend by 7s with Veo"
+                      }
+                      onClick={() => {
+                        openExtend(a);
+                        window.scrollTo({ top: document.querySelector(".asset-grid")?.offsetTop - 220 || 0, behavior: "smooth" });
+                      }}
+                    >
+                      <FastForward size={14} />
+                    </button>
+                  )}
+                  {a.kind === "image" && (
+                    <button
+                      className="btn"
+                      title="Animate this image with Veo"
+                      onClick={() => {
+                        setKind("video");
+                        setSize("portrait");
+                        setStartImage(a.file);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                    >
+                      <Clapperboard size={14} />
+                    </button>
+                  )}
                   <a className="btn" href={a.url} download={a.file} title="Download">
                     <Download size={14} />
                   </a>
