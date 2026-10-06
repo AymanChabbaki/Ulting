@@ -74,4 +74,6 @@ export const api = {
       `/api/breakdown/${accountId}?cut=${cut}&${windowQuery(window)}${fresh ? "&fresh=1" : ""}`
     ),
   exportUrl: (accountId, window) => `/api/export/${accountId}.csv?${windowQuery(window)}`,
+  reportUrl: (accountId, window, lang = "fr") =>
+    `/api/report/${accountId}.pdf?${windowQuery(window)}&lang=${lang}`,
 };

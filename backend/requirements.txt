@@ -8,3 +8,4 @@ bcrypt>=4.2
 openai==3.19.2
 pillow>=10
 numpy>=2
+reportlab>=4.2

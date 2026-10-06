@@ -7,12 +7,13 @@ import io
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from ..audit.engine import run_audit, summarise
 from ..auth import require_session
 from ..cache import audit_cache, breakdown_cache
 from ..portfolio import MAX_ACCOUNTS, build_portfolio
+from ..report import build_report
 from ..meta.client import MetaApiError, debug_token
 from ..meta.collect import (
     collect_account,
@@ -280,5 +281,35 @@ async def export_csv(
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/report/{account_id}.pdf")
+async def export_pdf(
+    account_id: str,
+    preset: str | None = Query(None),
+    since: str | None = Query(None),
+    until: str | None = Query(None),
+    lang: str = Query("fr", pattern="^(fr|en)$"),
+):
+    """Designed PDF report: cover, KPIs vs previous period, trend charts,
+    campaigns, best and wasted ads, and the audit with recommendations."""
+    window = _window(preset, since, until)
+    try:
+        # Same cache as the dashboard: exporting what is on screen costs no API budget.
+        snapshot, _ = await audit_cache.get_or_set(
+            f"{account_id}:{window.key}", lambda: collect_account(account_id, window)
+        )
+    except MetaApiError as error:
+        raise _handle(error) from error
+
+    pdf = build_report(snapshot, run_audit(snapshot), window_label=window.label, lang=lang)
+    name = (snapshot["account"].get("name") or account_id).strip()
+    slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-").lower()[:40] or "compte"
+    filename = f"rapport-meta-{slug}-{window.key.replace(':', '-')}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

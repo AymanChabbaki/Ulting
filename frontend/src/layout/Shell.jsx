@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import * as Popover from "@radix-ui/react-popover";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { AnimatePresence, motion } from "motion/react";
 import { Toaster, toast } from "sonner";
 import {
   ChevronLeft,
   Download,
+  FileText,
+  Sheet,
   Gauge,
   Layers,
   LogOut,
@@ -262,12 +265,38 @@ export default function Shell() {
                 <RefreshCw size={15} className={loading ? "spin" : undefined} />
                 <span className="btn-label">{loading ? "Refreshing" : "Refresh"}</span>
               </button>
-              {/* CSV export is per account; a portfolio has no single file. */}
+              {/* Export is per account; a portfolio has no single file. */}
               {!isPortfolio && (
-                <a className="btn" href={api.exportUrl(accountId, win)}>
-                  <Download size={15} />
-                  <span className="btn-label">Export</span>
-                </a>
+                <Popover.Root>
+                  <Popover.Trigger asChild>
+                    <button className="btn">
+                      <Download size={15} />
+                      <span className="btn-label">Export</span>
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content className="export-menu" align="end" sideOffset={6} collisionPadding={12}>
+                      <a
+                        href={api.reportUrl(accountId, win, "fr")}
+                        onClick={() => toast("Preparing the PDF report…")}
+                      >
+                        <FileText size={15} />
+                        <span><strong>PDF report</strong><small>Français · designed, with charts</small></span>
+                      </a>
+                      <a
+                        href={api.reportUrl(accountId, win, "en")}
+                        onClick={() => toast("Preparing the PDF report…")}
+                      >
+                        <FileText size={15} />
+                        <span><strong>PDF report</strong><small>English · designed, with charts</small></span>
+                      </a>
+                      <a href={api.exportUrl(accountId, win)}>
+                        <Sheet size={15} />
+                        <span><strong>CSV data</strong><small>Audit findings, for Excel</small></span>
+                      </a>
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
               )}
             </div>
           </header>
