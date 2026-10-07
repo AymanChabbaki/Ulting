@@ -86,6 +86,7 @@ async def audit(
     since: str | None = Query(None, description="YYYY-MM-DD, with until"),
     until: str | None = Query(None, description="YYYY-MM-DD, with since"),
     fresh: bool = Query(False, description="Bypass the 5-minute cache"),
+    lang: str = Query("en", pattern="^(en|fr)$", description="Language of the findings"),
 ):
     """The full payload the dashboard renders: snapshot + audit + trend."""
     window = _window(preset, since, until)
@@ -98,7 +99,7 @@ async def audit(
     except MetaApiError as error:
         raise _handle(error) from error
 
-    result = run_audit(snapshot)
+    result = run_audit(snapshot, lang)
     summary = summarise(snapshot, result)
 
     # Only what the UI renders crosses the wire. The raw snapshot carries full
@@ -176,6 +177,7 @@ async def portfolio(
     since: str | None = Query(None),
     until: str | None = Query(None),
     fresh: bool = Query(False),
+    lang: str = Query("en", pattern="^(en|fr)$", description="Language of the findings"),
 ):
     """Several accounts audited together, with currency-safe totals."""
     ids = [a.strip() for a in accounts.split(",") if a.strip()]
@@ -188,12 +190,12 @@ async def portfolio(
         )
 
     window = _window(preset, since, until)
-    key = f"portfolio:{','.join(sorted(ids))}:{window.key}"
+    key = f"portfolio:{','.join(sorted(ids))}:{window.key}:{lang}"
     try:
         # Per-account snapshots are cached individually inside collect, but the
         # merged result is cached too so paging between tabs is free.
         result, age = await audit_cache.get_or_set(
-            key, lambda: build_portfolio(ids, window), fresh=fresh
+            key, lambda: build_portfolio(ids, window, lang), fresh=fresh
         )
     except MetaApiError as error:
         raise _handle(error) from error
@@ -243,6 +245,7 @@ async def export_csv(
     preset: str | None = Query(None),
     since: str | None = Query(None),
     until: str | None = Query(None),
+    lang: str = Query("en", pattern="^(en|fr)$", description="Language of the findings"),
 ):
     window = _window(preset, since, until)
     try:
@@ -253,7 +256,7 @@ async def export_csv(
     except MetaApiError as error:
         raise _handle(error) from error
 
-    result = run_audit(snapshot)
+    result = run_audit(snapshot, lang)
     summary = summarise(snapshot, result)
 
     buffer = io.StringIO()
@@ -304,7 +307,7 @@ async def export_pdf(
     except MetaApiError as error:
         raise _handle(error) from error
 
-    pdf = build_report(snapshot, run_audit(snapshot), window_label=window.label, lang=lang)
+    pdf = build_report(snapshot, run_audit(snapshot, lang), window_label=window.label, lang=lang)
     name = (snapshot["account"].get("name") or account_id).strip()
     slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-").lower()[:40] or "compte"
     filename = f"rapport-meta-{slug}-{window.key.replace(':', '-')}.pdf"

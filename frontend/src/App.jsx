@@ -15,7 +15,7 @@ import Shell from "./layout/Shell.jsx";
 import Login from "./pages/Login.jsx";
 import Accounts from "./pages/Accounts.jsx";
 import Skeleton from "./components/Skeleton.jsx";
-import { useT } from "./lib/i18n.jsx";
+import { useLang, useT } from "./lib/i18n.jsx";
 
 // Split per route so the chart bundle is fetched only once a charting page is
 // actually opened -- login and the account picker never pay for it.
@@ -103,6 +103,9 @@ function useWindowParams() {
 function AuditProvider({ children }) {
   const { accountId } = useParams();
   const { window: window_, setWindow, search } = useWindowParams();
+  // Findings come back written in the interface language, so a switch reloads
+  // them (from the server's cache -- no Meta calls).
+  const { lang } = useLang();
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -121,7 +124,8 @@ function AuditProvider({ children }) {
         setLoading(false);
       }
     },
-    [accountId, window_]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accountId, window_, lang]
   );
 
   useEffect(() => {
@@ -155,6 +159,7 @@ function PortfolioProvider({ children }) {
   const { accountIds: raw } = useParams();
   const { window: window_, setWindow, search } = useWindowParams();
   const ids = useMemo(() => (raw || "").split(",").filter(Boolean), [raw]);
+  const { lang } = useLang();
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -173,7 +178,8 @@ function PortfolioProvider({ children }) {
         setLoading(false);
       }
     },
-    [ids, window_]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ids, window_, lang]
   );
 
   useEffect(() => {

@@ -13,7 +13,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
-from .rules import ALL_CATEGORIES, RULES, SEVERITY_ORDER, SEVERITY_WEIGHT
+from .rules import _LANG, ALL_CATEGORIES, RULES, SEVERITY_ORDER, SEVERITY_WEIGHT
 
 
 def _score_from(findings: list[dict]) -> int:
@@ -48,22 +48,28 @@ def _grade(score: int) -> dict[str, str]:
     return {"letter": "F", "label": "Critical"}
 
 
-def run_audit(snapshot: dict) -> dict[str, Any]:
+def run_audit(snapshot: dict, lang: str = "en") -> dict[str, Any]:
+    """`lang` ("en" or "fr") is the language findings are written in. Scores,
+    ids, categories and evidence are identical in both."""
     findings: list[dict] = []
     rule_errors: list[dict] = []
 
-    for rule in RULES:
-        try:
-            for result in rule.run(snapshot) or []:
-                findings.append({
-                    "ruleId": rule.id,
-                    "title": rule.title,
-                    "category": rule.category,
-                    "severity": rule.severity,
-                    **result,
-                })
-        except Exception as cause:  # noqa: BLE001 - one bad rule must not kill the audit
-            rule_errors.append({"ruleId": rule.id, "message": f"{type(cause).__name__}: {cause}"})
+    token = _LANG.set("fr" if lang == "fr" else "en")
+    try:
+        for rule in RULES:
+            try:
+                for result in rule.run(snapshot) or []:
+                    findings.append({
+                        "ruleId": rule.id,
+                        "title": rule.title_for(lang),
+                        "category": rule.category,
+                        "severity": rule.severity,
+                        **result,
+                    })
+            except Exception as cause:  # noqa: BLE001 - one bad rule must not kill the audit
+                rule_errors.append({"ruleId": rule.id, "message": f"{type(cause).__name__}: {cause}"})
+    finally:
+        _LANG.reset(token)
 
     findings.sort(key=lambda f: (SEVERITY_ORDER.index(f["severity"]), -f.get("impact", 0)))
 

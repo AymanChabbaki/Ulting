@@ -99,7 +99,7 @@ def combine(accounts: list[dict]) -> dict[str, Any]:
     }
 
 
-async def build_portfolio(account_ids: list[str], window: Window) -> dict[str, Any]:
+async def build_portfolio(account_ids: list[str], window: Window, lang: str = "en") -> dict[str, Any]:
     """Audit several accounts and merge the results."""
     ids = list(dict.fromkeys(account_ids))[:MAX_ACCOUNTS]
 
@@ -111,7 +111,7 @@ async def build_portfolio(account_ids: list[str], window: Window) -> dict[str, A
                 "accountId": account_id,
                 "error": getattr(cause, "message", None) or str(cause),
             }
-        audit = run_audit(snapshot)
+        audit = run_audit(snapshot, lang)
         summary = summarise(snapshot, audit)
         return {
             "accountId": summary["accountId"],

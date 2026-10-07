@@ -14,6 +14,7 @@ so the PDF and the screen never disagree. French or English labels.
 from __future__ import annotations
 
 import io
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any
 from xml.sax.saxutils import escape
@@ -156,20 +157,43 @@ def _safe(text: Any) -> str:
     return escape(s.encode("cp1252", "replace").decode("cp1252"))
 
 
+# Report language, set by build_report, for the number helpers below.
+_LANG: ContextVar[str] = ContextVar("report_lang", default="fr")
+
+
+def _fmt(v: float, decimals: int) -> str:
+    """1,234.50 in English, 1 234,50 in French (no-break space: in the font)."""
+    text = f"{float(v or 0):,.{decimals}f}"
+    if _LANG.get() == "fr":
+        text = text.replace(",", "\u00a0").replace(".", ",")
+    return text
+
+
 def _money(v: float, cur: str) -> str:
     v = float(v or 0)
-    if abs(v) >= 100_000:
-        return f"{v:,.0f} {cur}"
-    return f"{v:,.2f} {cur}"
+    return f"{_fmt(v, 0 if abs(v) >= 100_000 else 2)} {cur}"
 
 
 def _num(v: float) -> str:
     v = float(v or 0)
-    return f"{v:,.0f}" if v >= 100 or v == int(v) else f"{v:,.1f}"
+    return _fmt(v, 0) if v >= 100 or v == int(v) else _fmt(v, 1)
 
 
 def _pct(v: float) -> str:
-    return f"{float(v or 0):.2f}%"
+    return f"{_fmt(v, 2)} %" if _LANG.get() == "fr" else f"{_fmt(v, 2)}%"
+
+
+GRADE_FR = {"Healthy": "Sain", "Minor issues": "Problèmes mineurs", "Needs attention": "À surveiller",
+            "Significant problems": "Problèmes importants", "Critical": "Critique"}
+
+
+def _grade(audit: dict, lang: str) -> tuple[str, str]:
+    """(letter, label) -- the audit's grade is a dict, never print it raw."""
+    g = audit.get("grade") or {}
+    if not isinstance(g, dict):
+        return str(g), ""
+    label = g.get("label", "")
+    return g.get("letter", ""), (GRADE_FR.get(label, label) if lang == "fr" else label)
 
 
 def _delta(key: str, cur: dict, prev: dict) -> tuple[str, colors.Color] | None:
@@ -229,7 +253,7 @@ def _kpi_grid(m: dict, prev: dict, cur: str, t: dict, st: dict) -> Table:
         ("impressions", t["impressions"], _num(m.get("impressions"))),
         ("reach", t["reach"], _num(m.get("reach"))),
         ("cpm", t["cpm"], _money(m.get("cpm"), cur)),
-        ("frequency", t["frequency"], f"{float(m.get('frequency') or 0):.2f}"),
+        ("frequency", t["frequency"], _fmt(m.get('frequency'), 2)),
     ]
     cells = []
     for key, label, value in items:
@@ -422,7 +446,8 @@ def _takeaways(snapshot: dict, audit: dict, cur: str, t: dict) -> list[str]:
         out.append(t["t_dead"].format(name=dead[0].get("name"), spend=_money(dead[0]["metrics"]["spend"], cur)))
 
     counts = audit.get("counts") or {}
-    out.append(t["t_audit"].format(score=audit.get("score"), grade=audit.get("grade"),
+    letter, label = _grade(audit, "fr" if t is TEXT["fr"] else "en")
+    out.append(t["t_audit"].format(score=audit.get("score"), grade=f"{letter} · {label}".strip(" ·"),
                                    crit=counts.get("critical", 0), high=counts.get("high", 0)))
     if audit.get("estimatedWaste"):
         out.append(t["waste_line"].format(v=_money(audit["estimatedWaste"], cur)))
@@ -436,6 +461,8 @@ def _takeaways(snapshot: dict, audit: dict, cur: str, t: dict) -> list[str]:
 
 def build_report(snapshot: dict, audit: dict, *, window_label: str, lang: str = "fr") -> bytes:
     t = TEXT.get(lang, TEXT["fr"])
+    lang = "fr" if t is TEXT["fr"] else "en"
+    token = _LANG.set(lang)
     st = _styles()
     cur = snapshot.get("currency", "USD")
     account = snapshot.get("account") or {}
@@ -476,12 +503,18 @@ def build_report(snapshot: dict, audit: dict, *, window_label: str, lang: str = 
         c.circle(cx, cy, r, stroke=1, fill=0)
         ring = GOOD if score >= 80 else GOLD if score >= 60 else colors.HexColor("#ff6b5a")
         c.setStrokeColor(ring)
-        c.arc(cx - r, cy - r, cx + r, cy + r, 90, -3.6 * score)
+        # A zero-length arc divides by zero inside reportlab: score 0 draws no ring.
+        if score > 0:
+            c.arc(cx - r, cy - r, cx + r, cy + r, 90, -3.6 * min(score, 99.9))
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 26)
         c.drawCentredString(cx, cy - 4, str(score))
         c.setFont("Helvetica", 8.5)
-        c.drawCentredString(cx, cy - 18, f"/100 · {audit.get('grade', '')}")
+        letter, label = _grade(audit, lang)
+        c.drawCentredString(cx, cy - 18, f"/100 · {letter}")
+        if label:
+            c.setFont("Helvetica", 7.5)
+            c.drawCentredString(cx, cy - r - 16, _plain(label).upper())
         c.setFont("Helvetica-Bold", 9)
         c.drawCentredString(cx, cy + r + 14, t["health"].upper())
 
@@ -553,7 +586,7 @@ def build_report(snapshot: dict, audit: dict, *, window_label: str, lang: str = 
                 Paragraph(f"<b>{_safe(c.get('name'))}</b>", st["cell"]), _status(c, t),
                 _money(cm.get("spend"), cur), _num(cm.get("results")),
                 _money(cm.get("costPerResult"), cur) if cm.get("results") else t["none"],
-                _pct(cm.get("ctr")), f"{float(cm.get('spend') or 0) / total * 100:.0f}%",
+                _pct(cm.get("ctr")), (_fmt(float(cm.get('spend') or 0) / total * 100, 0) + (" %" if lang == "fr" else "%")),
             ])
         story.append(_table(
             [t["name"], t["status"], t["spend"], t["results"], t["cpr"], t["ctr"], t["share"]],
@@ -598,7 +631,10 @@ def build_report(snapshot: dict, audit: dict, *, window_label: str, lang: str = 
         topMargin=25 * mm, bottomMargin=18 * mm,
         title=f"{t['title']} — {_plain(name)}", author="ULTEx", subject=_plain(window_label),
     )
-    doc.build(story, onFirstPage=cover, onLaterPages=page)
+    try:
+        doc.build(story, onFirstPage=cover, onLaterPages=page)
+    finally:
+        _LANG.reset(token)
     return buffer.getvalue()
 
 

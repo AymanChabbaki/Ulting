@@ -1,3 +1,5 @@
+import { currentLang } from "./i18n.jsx";
+
 /**
  * API client.
  *
@@ -54,6 +56,10 @@ export function windowQuery(window = {}) {
   return params.toString();
 }
 
+// Findings are written on the server, so the interface language travels with
+// every request that returns them.
+const langParam = () => `&lang=${currentLang()}`;
+
 export const api = {
   login: (username, password) =>
     request("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
@@ -62,18 +68,18 @@ export const api = {
   health: () => request("/api/health"),
   accounts: () => request("/api/accounts"),
   audit: (accountId, window, { fresh = false } = {}) =>
-    request(`/api/audit/${accountId}?${windowQuery(window)}${fresh ? "&fresh=1" : ""}`),
+    request(`/api/audit/${accountId}?${windowQuery(window)}${fresh ? "&fresh=1" : ""}${langParam()}`),
   portfolio: (accountIds, window, { fresh = false } = {}) =>
     request(
       `/api/portfolio?accounts=${accountIds.join(",")}&${windowQuery(window)}${
         fresh ? "&fresh=1" : ""
-      }`
+      }${langParam()}`
     ),
   breakdown: (accountId, cut, window, { fresh = false } = {}) =>
     request(
       `/api/breakdown/${accountId}?cut=${cut}&${windowQuery(window)}${fresh ? "&fresh=1" : ""}`
     ),
-  exportUrl: (accountId, window) => `/api/export/${accountId}.csv?${windowQuery(window)}`,
+  exportUrl: (accountId, window) => `/api/export/${accountId}.csv?${windowQuery(window)}${langParam()}`,
   reportUrl: (accountId, window, lang = "fr") =>
     `/api/report/${accountId}.pdf?${windowQuery(window)}&lang=${lang}`,
 };
