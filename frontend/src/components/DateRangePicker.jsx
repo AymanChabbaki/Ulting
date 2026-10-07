@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { DayPicker } from "react-day-picker";
 import { format, isAfter, startOfDay } from "date-fns";
+import { fr as frLocale } from "date-fns/locale";
+
+import { useLang } from "../lib/i18n.jsx";
 import { CalendarDays, ChevronDown } from "lucide-react";
 
 /**
@@ -36,6 +39,7 @@ const iso = (d) => format(d, "yyyy-MM-dd");
 const parse = (s) => (s ? new Date(`${s}T00:00:00`) : undefined);
 
 export default function DateRangePicker({ value, label, onChange }) {
+  const { t, lang } = useLang();
   const [open, setOpen] = useState(false);
   const [draftPreset, setDraftPreset] = useState(value.preset || null);
   const [range, setRange] = useState({ from: parse(value.since), to: parse(value.until) });
@@ -59,17 +63,17 @@ export default function DateRangePicker({ value, label, onChange }) {
   }
 
   const draftLabel = draftPreset
-    ? PRESETS.find((p) => p.key === draftPreset)?.label
+    ? t(PRESETS.find((p) => p.key === draftPreset)?.label || "")
     : range?.from && range?.to
       ? `${iso(range.from)} → ${iso(range.to)}`
       : range?.from
-        ? `${iso(range.from)} → select end date`
-        : "Select a start date";
+        ? `${iso(range.from)} → ${t("select end date")}`
+        : t("Select a start date");
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button className="btn drp-trigger" aria-label="Change date range">
+        <button className="btn drp-trigger" aria-label={t("Change date range")}>
           <CalendarDays size={15} className="drp-cal-icon" />
           <span>{label}</span>
           <ChevronDown size={13} className="drp-caret" />
@@ -88,7 +92,7 @@ export default function DateRangePicker({ value, label, onChange }) {
                   setRange({ from: undefined, to: undefined });
                 }}
               >
-                {p.label}
+                {t(p.label)}
               </button>
             ))}
           </div>
@@ -96,6 +100,7 @@ export default function DateRangePicker({ value, label, onChange }) {
           <div className="drp-cal">
             <DayPicker
               mode="range"
+              locale={lang === "fr" ? frLocale : undefined}
               numberOfMonths={2}
               weekStartsOn={1}
               defaultMonth={range?.from ?? new Date(today.getFullYear(), today.getMonth() - 1, 1)}
@@ -115,10 +120,10 @@ export default function DateRangePicker({ value, label, onChange }) {
               <span className="drp-draft">{draftLabel}</span>
               <span className="drp-actions">
                 <Popover.Close asChild>
-                  <button className="btn">Cancel</button>
+                  <button className="btn">{t("Cancel")}</button>
                 </Popover.Close>
                 <button className="btn btn-primary" disabled={!canApply} onClick={apply}>
-                  Update
+                  {t("Update")}
                 </button>
               </span>
             </div>

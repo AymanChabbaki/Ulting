@@ -38,6 +38,8 @@ class ChatRequest(BaseModel):
     until: str | None = None
     # Continue a saved chat; omitted on the first message, which creates one.
     chat_id: str | None = None
+    # Interface language: the answer is written in it.
+    lang: str = Field(default="en", pattern="^(en|fr)$")
 
 
 class RenameRequest(BaseModel):
@@ -115,7 +117,8 @@ async def chat(body: ChatRequest):
         yield _sse({"type": "chat", "id": chat_id})
         try:
             async for event in stream_reply(
-                history, snapshot=snapshot, audit=audit, breakdown_fetcher=breakdown_fetcher
+                history, snapshot=snapshot, audit=audit, breakdown_fetcher=breakdown_fetcher,
+                lang=body.lang,
             ):
                 if event.get("type") == "text":
                     answer.append(event.get("text", ""))

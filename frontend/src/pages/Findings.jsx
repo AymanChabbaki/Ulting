@@ -11,6 +11,7 @@ import {
 import { useAudit } from "../App.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import { money, percent, SEVERITY_COLOR, SEVERITY_ORDER } from "../lib/format.js";
+import { currentLang, useT } from "../lib/i18n.jsx";
 
 /**
  * The audit page.
@@ -55,6 +56,7 @@ function groupByRule(findings) {
 
 export default function Findings() {
   const { data } = useAudit();
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
@@ -169,22 +171,22 @@ export default function Findings() {
           <div className="triage-head">
             <span className="triage-count">{total}</span>
             <span className="triage-label">
-              finding{total === 1 ? "" : "s"}
-              <span className="triage-sub">from {audit.rulesRun} rules</span>
+              {total === 1 ? t("finding") : t("findings")}
+              <span className="triage-sub">{t("from {n} rules", { n: audit.rulesRun })}</span>
             </span>
           </div>
 
           {/* Stacked part-to-whole using the reserved status colours, which is
               exactly what they are for. Each segment filters the list. */}
-          <div className="sev-bar" role="img" aria-label="Findings by severity">
+          <div className="sev-bar" role="img" aria-label={t("Findings by severity")}>
             {SEVERITY_ORDER.filter((s) => audit.counts[s] > 0).map((s) => (
               <button
                 key={s}
                 className={`sev-seg ${severity === s ? "is-on" : ""}`}
                 style={{ flexGrow: audit.counts[s], background: SEVERITY_COLOR[s] }}
                 onClick={() => setSeverity(severity === s ? "all" : s)}
-                title={`${audit.counts[s]} ${s} — click to filter`}
-                aria-label={`${audit.counts[s]} ${s}`}
+                title={`${audit.counts[s]} ${t(s)} — ${t("click to filter")}`}
+                aria-label={`${audit.counts[s]} ${t(s)}`}
               />
             ))}
           </div>
@@ -198,18 +200,19 @@ export default function Findings() {
               >
                 <span className="dot" style={{ background: SEVERITY_COLOR[s] }} />
                 <span className="sev-key-n">{audit.counts[s]}</span>
-                <span className="sev-key-l">{s}</span>
+                <span className="sev-key-l">{t(s)}</span>
               </button>
             ))}
           </div>
         </div>
 
         <div className="triage-money">
-          <span className="triage-money-label">Recoverable spend</span>
+          <span className="triage-money-label">{t("Recoverable spend")}</span>
           <span className="triage-amount">{money(audit.estimatedWaste, currency)}</span>
           <span className="triage-sub">
-            {percent((audit.estimatedWaste / (data.summary.metrics.spend || 1)) * 100, 0)} of
-            spend this window
+            {t("{pct} of spend this window", {
+              pct: percent((audit.estimatedWaste / (data.summary.metrics.spend || 1)) * 100, 0),
+            })}
           </span>
         </div>
       </section>
@@ -217,7 +220,7 @@ export default function Findings() {
       {/* 2 — what to do first. */}
       {topActions.length > 0 && (
         <section>
-          <h2 className="section-title">Fix these first</h2>
+          <h2 className="section-title">{t("Fix these first")}</h2>
           <div className="priority-grid">
             {topActions.map((g, i) => (
               <article
@@ -228,7 +231,7 @@ export default function Findings() {
                 <div className="priority-top">
                   <span className="priority-rank">{i + 1}</span>
                   <span className="sev-pill" style={{ background: SEVERITY_COLOR[g.severity] }}>
-                    {g.severity}
+                    {t(g.severity)}
                   </span>
                   {g.impact > 0 && (
                     <span className="priority-impact">{money(g.impact, currency)}</span>
@@ -238,7 +241,7 @@ export default function Findings() {
                 <div className="priority-meta">
                   {g.findings.length === 1
                     ? g.findings[0].entity.name
-                    : `${g.findings.length} entities · ${g.category}`}
+                    : `${t("{n} entities", { n: g.findings.length })} · ${t(g.category)}`}
                 </div>
                 <p className="priority-fix">{g.findings[0].recommendation}</p>
               </article>
@@ -250,7 +253,7 @@ export default function Findings() {
       {/* 3 — where the damage sits. Doubles as the category filter. */}
       {categoryStats.length > 1 && (
         <section>
-          <h2 className="section-title">By category</h2>
+          <h2 className="section-title">{t("By category")}</h2>
           <div className="cat-row">
             {categoryStats.map((c) => (
               <button
@@ -258,10 +261,10 @@ export default function Findings() {
                 className={`cat-card ${category === c.category ? "is-on" : ""}`}
                 onClick={() => setCategory(category === c.category ? "all" : c.category)}
               >
-                <span className="cat-name">{c.category}</span>
+                <span className="cat-name">{t(c.category)}</span>
                 <span className="cat-nums">
                   <span className="cat-count">
-                    {c.count} finding{c.count === 1 ? "" : "s"}
+                    {c.count} {c.count === 1 ? t("finding") : t("findings")}
                   </span>
                   {c.impact > 0 && (
                     <span className="cat-impact">{money(c.impact, currency)}</span>
@@ -289,7 +292,7 @@ export default function Findings() {
             <Search size={14} />
             <input
               className="field-search-input"
-              placeholder="Search findings, campaigns, ad sets…"
+              placeholder={t("Search findings, campaigns, ad sets…")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -301,28 +304,28 @@ export default function Findings() {
               className="select"
               value={sort}
               onChange={(e) => setSort(e.target.value)}
-              aria-label="Sort findings"
+              aria-label={t("Sort findings")}
             >
               {SORTS.map((s) => (
                 <option key={s.key} value={s.key}>
-                  {s.label}
+                  {t(s.label)}
                 </option>
               ))}
             </select>
           </label>
 
           <button className="btn" onClick={toggleAll}>
-            {expandAll ? "Collapse all" : "Expand all"}
+            {expandAll ? t("Collapse all") : t("Expand all")}
           </button>
         </div>
 
         <div className="list-count">
           <span>
-            Showing <strong>{shown}</strong> of {total} finding{total === 1 ? "" : "s"}
+            {t("Showing")} <strong>{shown}</strong> {t("of")} {total} {total === 1 ? t("finding") : t("findings")}
           </span>
           {filtering && (
             <button className="link-btn" onClick={clearFilters}>
-              Clear filters
+              {t("Clear filters")}
             </button>
           )}
         </div>
@@ -354,17 +357,17 @@ export default function Findings() {
                         className="sev-pill"
                         style={{ background: SEVERITY_COLOR[group.severity] }}
                       >
-                        {group.severity}
+                        {t(group.severity)}
                       </span>
                       {group.findings.length > 1 && (
-                        <span className="tag">{group.findings.length} affected</span>
+                        <span className="tag">{t("{n} affected", { n: group.findings.length })}</span>
                       )}
-                      <span className="finding-cat">{group.category}</span>
+                      <span className="finding-cat">{t(group.category)}</span>
                     </span>
                     <span className="finding-summary">
                       {group.findings.length === 1
                         ? first.detail
-                        : `${first.entity.name} and ${group.findings.length - 1} others`}
+                        : t("{name} and {n} others", { name: first.entity.name, n: group.findings.length - 1 })}
                     </span>
                   </span>
 
@@ -388,7 +391,7 @@ export default function Findings() {
                     {group.findings.map((f, i) => (
                       <div className="entity" key={`${f.entity.id}-${i}`}>
                         <div className="entity-head">
-                          <span className="tag">{f.entity.level}</span>
+                          <span className="tag">{t(f.entity.level)}</span>
                           <span className="entity-name">{f.entity.name}</span>
                           {f.impact > 0 && (
                             <span className="entity-impact">{money(f.impact, currency)}</span>
@@ -411,12 +414,12 @@ export default function Findings() {
           {groups.length === 0 && (
             <div className="card empty">
               {total === 0
-                ? "No findings — this account passed every rule."
-                : "No findings match these filters."}
+                ? t("No findings — this account passed every rule.")
+                : t("No findings match these filters.")}
               {filtering && total > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <button className="btn" onClick={clearFilters}>
-                    Clear filters
+                    {t("Clear filters")}
                   </button>
                 </div>
               )}
@@ -446,7 +449,7 @@ function Evidence({ evidence }) {
   // "52.5" everywhere else.
   const show = (v) =>
     typeof v === "number"
-      ? v.toLocaleString("en-US", { maximumFractionDigits: 2 })
+      ? v.toLocaleString(currentLang() === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 2 })
       : String(v);
 
   return (

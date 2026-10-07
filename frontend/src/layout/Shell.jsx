@@ -25,6 +25,7 @@ import { useAudit, useSession } from "../App.jsx";
 import { api } from "../lib/api.js";
 import { money } from "../lib/format.js";
 import DateRangePicker from "../components/DateRangePicker.jsx";
+import { LangSwitch, useLang } from "../lib/i18n.jsx";
 import AccountSwitcher from "../components/AccountSwitcher.jsx";
 
 const NAV_SINGLE = [
@@ -66,6 +67,7 @@ export default function Shell() {
   const { data, loading, error, window: win, setWindow, search, accountId, accountIds, mode, reload } =
     useAudit();
   const { user, signOut } = useSession();
+  const { t, lang } = useLang();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -91,7 +93,8 @@ export default function Shell() {
   // 429 arriving while you are reading a table is otherwise easy to miss.
   useEffect(() => {
     if (!error) return;
-    toast.error("Could not load this account", { description: error.message });
+    toast.error(t("Could not load this account"), { description: error.message });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [error]);
 
   const isPortfolio = mode === "portfolio";
@@ -125,14 +128,14 @@ export default function Shell() {
         .join(" + ")
     : money(data?.summary?.estimatedWaste || 0, account?.currency || "USD");
   const miniResultLabel = isPortfolio
-    ? "Results"
-    : data?.summary?.metrics?.resultLabel || "Results";
+    ? t("Results")
+    : t(data?.summary?.metrics?.resultLabel || "Results");
 
   function handleRefresh() {
     toast.promise(Promise.resolve(reload()), {
-      loading: "Refreshing from Meta…",
-      success: "Data refreshed",
-      error: "Refresh failed",
+      loading: t("Refreshing from Meta…"),
+      success: t("Data refreshed"),
+      error: t("Refresh failed"),
     });
   }
 
@@ -157,7 +160,7 @@ export default function Shell() {
             <button
               className="sidebar-toggle"
               onClick={() => setCollapsed((v) => !v)}
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={collapsed ? t("Expand sidebar") : t("Collapse sidebar")}
             >
               <ChevronLeft size={16} />
             </button>
@@ -165,14 +168,14 @@ export default function Shell() {
 
           <div className="sidebar-scroll">
             <div className="nav-group">
-              <div className="nav-label">Account</div>
+              <div className="nav-label">{t("Account")}</div>
               <AccountSwitcher activeIds={accountIds} search={search} />
             </div>
 
             <nav className="nav-group">
-              <div className="nav-label">Analysis</div>
+              <div className="nav-label">{t("Analysis")}</div>
               {NAV.map(({ to, label, end, Icon, badge, accent }) => (
-                <RailTip key={label} label={label} collapsed={collapsed}>
+                <RailTip key={label} label={t(label)} collapsed={collapsed}>
                   <NavLink
                     // Carrying the search string is what keeps the chosen
                     // window alive across pages: a bare `to` drops it and the
@@ -186,7 +189,7 @@ export default function Shell() {
                     <span className="nav-icon">
                       <Icon size={18} />
                     </span>
-                    <span className="nav-text">{label}</span>
+                    <span className="nav-text">{t(label)}</span>
                     {badge && badges[badge] != null && (
                       <span className="badge">{badges[badge]}</span>
                     )}
@@ -197,16 +200,16 @@ export default function Shell() {
 
             {data && (
               <div className="nav-group hide-collapsed">
-                <div className="nav-label">This window</div>
+                <div className="nav-label">{t("This window")}</div>
                 <div className="mini-stats">
-                  <MiniStat label="Spend" value={miniSpend} />
+                  <MiniStat label={t("Spend")} value={miniSpend} />
                   <MiniStat label={miniResultLabel} value={miniResults.toLocaleString()} />
-                  <MiniStat label="Recoverable" value={miniWaste} tone="serious" />
+                  <MiniStat label={t("Recoverable")} value={miniWaste} tone="serious" />
                 </div>
                 {urgent > 0 && (
                   <NavLink to={{ pathname: "findings", search }} className="alert-pill">
                     <TriangleAlert size={14} />
-                    <span>{urgent} need attention</span>
+                    <span>{t("{n} need attention", { n: urgent })}</span>
                   </NavLink>
                 )}
               </div>
@@ -217,14 +220,15 @@ export default function Shell() {
             <div className="user-row">
               <span className="avatar">{(user || "?").slice(0, 1).toUpperCase()}</span>
               <span className="nav-text user-name">{user}</span>
-              <RailTip label="Sign out" collapsed={collapsed}>
+              <LangSwitch className="hide-collapsed" />
+              <RailTip label={t("Sign out")} collapsed={collapsed}>
                 <button
                   className="icon-btn"
                   onClick={async () => {
                     await signOut();
                     navigate("/");
                   }}
-                  aria-label="Sign out"
+                  aria-label={t("Sign out")}
                 >
                   <LogOut size={16} />
                 </button>
@@ -238,7 +242,7 @@ export default function Shell() {
             <div className="topbar-title">
               <h1>
                 {isPortfolio
-                  ? `${data?.accounts?.length ?? accountIds.length} accounts compared`
+                  ? t("{n} accounts compared", { n: data?.accounts?.length ?? accountIds.length })
                   : account?.name || "…"}
               </h1>
               <p>
@@ -258,12 +262,12 @@ export default function Shell() {
             <div className="topbar-actions">
               <DateRangePicker
                 value={win}
-                label={data?.window?.label || "Last 30 days"}
+                label={t(data?.window?.label || "Last 30 days")}
                 onChange={setWindow}
               />
               <button className="btn" onClick={handleRefresh} disabled={loading}>
                 <RefreshCw size={15} className={loading ? "spin" : undefined} />
-                <span className="btn-label">{loading ? "Refreshing" : "Refresh"}</span>
+                <span className="btn-label">{loading ? t("Refreshing") : t("Refresh")}</span>
               </button>
               {/* Export is per account; a portfolio has no single file. */}
               {!isPortfolio && (
@@ -271,28 +275,27 @@ export default function Shell() {
                   <Popover.Trigger asChild>
                     <button className="btn">
                       <Download size={15} />
-                      <span className="btn-label">Export</span>
+                      <span className="btn-label">{t("Export")}</span>
                     </button>
                   </Popover.Trigger>
                   <Popover.Portal>
                     <Popover.Content className="export-menu" align="end" sideOffset={6} collisionPadding={12}>
-                      <a
-                        href={api.reportUrl(accountId, win, "fr")}
-                        onClick={() => toast("Preparing the PDF report…")}
-                      >
-                        <FileText size={15} />
-                        <span><strong>PDF report</strong><small>Français · designed, with charts</small></span>
-                      </a>
-                      <a
-                        href={api.reportUrl(accountId, win, "en")}
-                        onClick={() => toast("Preparing the PDF report…")}
-                      >
-                        <FileText size={15} />
-                        <span><strong>PDF report</strong><small>English · designed, with charts</small></span>
-                      </a>
+                      {[lang, lang === "fr" ? "en" : "fr"].map((l) => (
+                        <a
+                          key={l}
+                          href={api.reportUrl(accountId, win, l)}
+                          onClick={() => toast(t("Preparing the PDF report…"))}
+                        >
+                          <FileText size={15} />
+                          <span>
+                            <strong>{t("PDF report")}</strong>
+                            <small>{l === "fr" ? "Français" : "English"} · {t("designed, with charts")}</small>
+                          </span>
+                        </a>
+                      ))}
                       <a href={api.exportUrl(accountId, win)}>
                         <Sheet size={15} />
-                        <span><strong>CSV data</strong><small>Audit findings, for Excel</small></span>
+                        <span><strong>{t("CSV data")}</strong><small>{t("Audit findings, for Excel")}</small></span>
                       </a>
                     </Popover.Content>
                   </Popover.Portal>
@@ -304,8 +307,8 @@ export default function Shell() {
           <div className="content">
             {error && (
               <div className="error-box" style={{ marginBottom: 16 }}>
-                <strong>Could not load this account.</strong> {error.message}
-                {error.detail?.code ? ` (Graph code ${error.detail.code})` : ""}
+                <strong>{t("Could not load this account.")}</strong> {error.message}
+                {error.detail?.code ? ` (${t("Graph code")} ${error.detail.code})` : ""}
               </div>
             )}
 
@@ -315,10 +318,10 @@ export default function Shell() {
               <div className="warn-box">
                 <Info size={16} />
                 <span>
-                  <strong>This audit is incomplete.</strong>{" "}
-                  {warnings.map((w) => w.source.replace(/_/g, " ")).join(", ")} could not be
-                  fetched, so some findings are missing and the health score reads higher than
-                  it should. Try Refresh — this is usually Meta rate-limiting.
+                  <strong>{t("This audit is incomplete.")}</strong>{" "}
+                  {t("{sources} could not be fetched, so some findings are missing and the health score reads higher than it should. Try Refresh — this is usually Meta rate-limiting.", {
+                    sources: warnings.map((w) => w.source.replace(/_/g, " ")).join(", "),
+                  })}
                 </span>
               </div>
             )}

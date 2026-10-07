@@ -6,6 +6,7 @@ import { useAudit } from "../App.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import BarList from "../charts/BarList.jsx";
 import { count, money, percent, SEVERITY_COLOR, SEVERITY_ORDER } from "../lib/format.js";
+import { useT } from "../lib/i18n.jsx";
 
 /**
  * Several accounts side by side.
@@ -17,6 +18,7 @@ import { count, money, percent, SEVERITY_COLOR, SEVERITY_ORDER } from "../lib/fo
  */
 export default function Portfolio({ tab = "overview" }) {
   const { data, search } = useAudit();
+  const t = useT();
   const [sortKey, setSortKey] = useState("spend");
 
   const accounts = data?.accounts ?? [];
@@ -46,7 +48,7 @@ export default function Portfolio({ tab = "overview" }) {
         <div className="warn-box">
           <Info size={16} />
           <span>
-            <strong>{failed.length} account(s) could not be loaded.</strong>{" "}
+            <strong>{t("{n} account(s) could not be loaded.", { n: failed.length })}</strong>{" "}
             {failed.map((f) => `${f.accountId}: ${f.error}`).join(" · ")}
           </span>
         </div>
@@ -56,9 +58,8 @@ export default function Portfolio({ tab = "overview" }) {
         <div className="warn-box">
           <Info size={16} />
           <span>
-            <strong>Mixed currencies ({combined.currencies.join(", ")}).</strong> Spend and cost
-            figures are shown per currency and never added together — a combined total would be
-            meaningless. Counts and rates (results, clicks, CTR) do combine.
+            <strong>{t("Mixed currencies ({list}).", { list: combined.currencies.join(", ") })}</strong>{" "}
+            {t("Spend and cost figures are shown per currency and never added together — a combined total would be meaningless. Counts and rates (results, clicks, CTR) do combine.")}
           </span>
         </div>
       )}
@@ -66,7 +67,7 @@ export default function Portfolio({ tab = "overview" }) {
       {/* Headline row */}
       <section className="grid" style={{ gridTemplateColumns: "minmax(240px,300px) 1fr" }}>
         <div className="card card-pad">
-          <div className="stat-label">Average health</div>
+          <div className="stat-label">{t("Average health")}</div>
           <div
             style={{
               fontSize: 48,
@@ -86,7 +87,7 @@ export default function Portfolio({ tab = "overview" }) {
             <span style={{ fontSize: 15, color: "var(--text-muted)", fontWeight: 500 }}> / 100</span>
           </div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-            across {accounts.length} accounts · unweighted
+            {t("across {n} accounts · unweighted", { n: accounts.length })}
           </div>
 
           <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -98,13 +99,13 @@ export default function Portfolio({ tab = "overview" }) {
                 style={{ textTransform: "capitalize" }}
               >
                 <span className="dot" style={{ background: SEVERITY_COLOR[s] }} />
-                {counts[s]} {s}
+                {counts[s]} {t(s)}
               </Link>
             ))}
           </div>
 
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
-            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Recoverable spend</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("Recoverable spend")}</div>
             {Object.entries(estimatedWasteByCurrency).map(([cur, v]) => (
               <div key={cur} style={{ fontSize: 18, fontWeight: 600, color: "var(--serious)" }}>
                 {money(v, cur)}
@@ -114,9 +115,9 @@ export default function Portfolio({ tab = "overview" }) {
         </div>
 
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(158px,1fr))", gap: 12 }}>
-          <Tile label="Accounts" value={String(accounts.length)} sub={combined.currencies.join(" · ")} />
+          <Tile label={t("Accounts")} value={String(accounts.length)} sub={combined.currencies.join(" · ")} />
           <Tile
-            label="Spend"
+            label={t("Spend")}
             value={
               mixed ? (
                 <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -128,13 +129,13 @@ export default function Portfolio({ tab = "overview" }) {
                 money(combined.spend, combined.currency)
               )
             }
-            sub={mixed ? "per currency" : undefined}
+            sub={mixed ? t("per currency") : undefined}
           />
-          <Tile label="Results" value={count(combined.results)} />
-          <Tile label="Impressions" value={count(combined.impressions, { compact: true })} />
-          <Tile label="Clicks" value={count(combined.clicks)} sub={`CTR ${percent(combined.ctr)}`} />
+          <Tile label={t("Results")} value={count(combined.results)} />
+          <Tile label={t("Impressions")} value={count(combined.impressions, { compact: true })} />
+          <Tile label={t("Clicks")} value={count(combined.clicks)} sub={`CTR ${percent(combined.ctr)}`} />
           <Tile
-            label="Cost per result"
+            label={t("Cost per result")}
             value={
               <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
                 {Object.entries(combined.costPerResultByCurrency).map(([c, v]) => (
@@ -142,7 +143,7 @@ export default function Portfolio({ tab = "overview" }) {
                 ))}
               </span>
             }
-            sub={mixed ? "per currency" : undefined}
+            sub={mixed ? t("per currency") : undefined}
           />
         </div>
       </section>
@@ -152,10 +153,10 @@ export default function Portfolio({ tab = "overview" }) {
       <section className="card card-pad">
         <div className="card-head">
           <span className="card-title">
-            {mixed ? "Results by account" : "Spend by account"}
+            {mixed ? t("Results by account") : t("Spend by account")}
           </span>
           <span className="card-sub">
-            {mixed ? "counts compare across currencies; spend does not" : data.window?.label}
+            {mixed ? t("counts compare across currencies; spend does not") : t(data.window?.label || "")}
           </span>
         </div>
         <BarList
@@ -169,7 +170,7 @@ export default function Portfolio({ tab = "overview" }) {
           formatValue={(v) =>
             mixed ? count(v) : money(v, combined.currency || rows[0]?.currency)
           }
-          emptyMessage="No delivery in this window"
+          emptyMessage={t("No delivery in this window")}
         />
       </section>
 
@@ -178,14 +179,14 @@ export default function Portfolio({ tab = "overview" }) {
         <table style={{ minWidth: 860 }}>
           <thead>
             <tr>
-              <th className="no-sort">Account</th>
-              <th onClick={() => setSortKey("score")} className="num">Health</th>
-              <th onClick={() => setSortKey("spend")} className="num">Spend</th>
-              <th onClick={() => setSortKey("results")} className="num">Results</th>
-              <th className="no-sort num">Cost/result</th>
+              <th className="no-sort">{t("Account")}</th>
+              <th onClick={() => setSortKey("score")} className="num">{t("Health")}</th>
+              <th onClick={() => setSortKey("spend")} className="num">{t("Spend")}</th>
+              <th onClick={() => setSortKey("results")} className="num">{t("Results")}</th>
+              <th className="no-sort num">{t("Cost/result")}</th>
               <th className="no-sort num">CTR</th>
-              <th className="no-sort num">Findings</th>
-              <th className="no-sort num">Recoverable</th>
+              <th className="no-sort num">{t("Findings")}</th>
+              <th className="no-sort num">{t("Recoverable")}</th>
             </tr>
           </thead>
           <tbody>
@@ -252,6 +253,7 @@ function Tile({ label, value, sub }) {
 
 /** Merged findings across accounts, each tagged with where it came from. */
 function PortfolioFindings({ findings, counts, search }) {
+  const t = useT();
   const [severity, setSeverity] = useState("all");
   const visible = findings.filter((f) => severity === "all" || f.severity === severity);
 
@@ -262,7 +264,7 @@ function PortfolioFindings({ findings, counts, search }) {
           className={`chip ${severity === "all" ? "active" : ""}`}
           onClick={() => setSeverity("all")}
         >
-          All {findings.length}
+          {t("All")} {findings.length}
         </button>
         {SEVERITY_ORDER.filter((s) => counts[s] > 0).map((s) => (
           <button
@@ -272,7 +274,7 @@ function PortfolioFindings({ findings, counts, search }) {
             style={{ textTransform: "capitalize" }}
           >
             <span className="dot" style={{ background: SEVERITY_COLOR[s] }} />
-            {s} {counts[s]}
+            {t(s)} {counts[s]}
           </button>
         ))}
       </div>
@@ -289,7 +291,7 @@ function PortfolioFindings({ findings, counts, search }) {
             >
               {f.account.name}
             </Link>
-            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{f.category}</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t(f.category)}</span>
           </div>
           <p style={{ marginTop: 6, fontSize: 13, color: "var(--text-secondary)" }}>{f.detail}</p>
           <p style={{ marginTop: 4, fontSize: 13, color: "var(--accent)" }}>
@@ -298,7 +300,7 @@ function PortfolioFindings({ findings, counts, search }) {
         </div>
       ))}
 
-      {!visible.length && <div className="card empty">No findings at this severity.</div>}
+      {!visible.length && <div className="card empty">{t("No findings at this severity.")}</div>}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
 
 import { useAudit } from "../App.jsx";
 import { windowQuery } from "../lib/api.js";
+import { currentLang, useLang } from "../lib/i18n.jsx";
 
 /**
  * Chat with the strategist.
@@ -31,6 +32,7 @@ const TOOL_LABEL = {
 
 export default function Strategist() {
   const { accountId, window: win, data } = useAudit();
+  const { t, lang } = useLang();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -95,7 +97,7 @@ export default function Strategist() {
     setError(null);
     try {
       const r = await fetch(`/api/strategy/chats/${id}`, { credentials: "same-origin" });
-      if (!r.ok) throw new Error("This chat could not be opened");
+      if (!r.ok) throw new Error(t("This chat could not be opened"));
       const chat = await r.json();
       setChatId(chat.id);
       setChatMeta({ windowLabel: chat.windowLabel, createdAt: chat.createdAt });
@@ -106,7 +108,7 @@ export default function Strategist() {
   }
 
   async function renameChat(chat) {
-    const title = window.prompt("Rename chat", chat.title);
+    const title = window.prompt(t("Rename chat"), chat.title);
     if (!title?.trim() || title === chat.title) return;
     await fetch(`/api/strategy/chats/${chat.id}`, {
       method: "PATCH",
@@ -118,7 +120,7 @@ export default function Strategist() {
   }
 
   async function removeChat(chat) {
-    if (!window.confirm(`Delete "${chat.title}"? This cannot be undone.`)) return;
+    if (!window.confirm(t('Delete "{title}"? This cannot be undone.', { title: chat.title }))) return;
     await fetch(`/api/strategy/chats/${chat.id}`, { method: "DELETE", credentials: "same-origin" })
       .catch(() => {});
     if (chat.id === chatId) newChat();
@@ -161,13 +163,15 @@ export default function Strategist() {
           // Only role and content go back; an answer stopped before any text
           // is kept in the saved chat but has nothing to resend.
           messages: next.filter((m) => m.content).map(({ role, content }) => ({ role, content })),
+          // The strategist answers in the interface language.
+          lang,
           ...Object.fromEntries(new URLSearchParams(windowQuery(win))),
         }),
       });
 
       if (!response.ok || !response.body) {
         const detail = await response.json().catch(() => null);
-        throw new Error(detail?.detail?.message || `Request failed (${response.status})`);
+        throw new Error(detail?.detail?.message || `${t("Request failed")} (${response.status})`);
       }
 
       const reader = response.body.getReader();
@@ -198,7 +202,7 @@ export default function Strategist() {
             setChatId(event.id);
           } else if (event.type === "thinking") setStatus("Thinking");
           else if (event.type === "tool") {
-            setStatus(TOOL_LABEL[event.name] || `Running ${event.name}`);
+            setStatus(TOOL_LABEL[event.name] || `${t("Running")} ${event.name}`);
             setMessages((prev) => {
               const copy = [...prev];
               const last = copy[copy.length - 1];
@@ -245,14 +249,14 @@ export default function Strategist() {
         <aside className="chat-history">
           <div className="chat-history-head">
             <button className="btn btn-primary" onClick={newChat} disabled={busy}>
-              <MessageSquarePlus size={15} /> New chat
+              <MessageSquarePlus size={15} /> {t("New chat")}
             </button>
-            <button className="btn chat-history-toggle" onClick={toggleHistory} title="Hide history">
+            <button className="btn chat-history-toggle" onClick={toggleHistory} title={t("Hide history")}>
               <PanelLeftClose size={15} />
             </button>
           </div>
           <div className="chat-history-list">
-            {chats.length === 0 && <p className="chat-history-empty">Your chats on this account will be saved here.</p>}
+            {chats.length === 0 && <p className="chat-history-empty">{t("Your chats on this account will be saved here.")}</p>}
             {chats.map((c) => (
               <div
                 key={c.id}
@@ -264,14 +268,14 @@ export default function Strategist() {
               >
                 <span className="chat-history-title">{c.title}</span>
                 <span className="chat-history-meta">
-                  {new Date(c.updatedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
-                  {" · "}{c.windowLabel}{" · "}{c.turns} {c.turns === 1 ? "question" : "questions"}
+                  {new Date(c.updatedAt).toLocaleDateString(currentLang() === "fr" ? "fr-FR" : "en-US", { day: "numeric", month: "short" })}
+                  {" · "}{t(c.windowLabel || "")}{" · "}{c.turns} {c.turns === 1 ? t("question") : t("questions")}
                 </span>
                 <span className="chat-history-actions">
-                  <button title="Rename" onClick={(e) => { e.stopPropagation(); renameChat(c); }}>
+                  <button title={t("Rename")} onClick={(e) => { e.stopPropagation(); renameChat(c); }}>
                     <Pencil size={12} />
                   </button>
-                  <button title="Delete" onClick={(e) => { e.stopPropagation(); removeChat(c); }}>
+                  <button title={t("Delete")} onClick={(e) => { e.stopPropagation(); removeChat(c); }}>
                     <Trash2 size={12} />
                   </button>
                 </span>
@@ -283,14 +287,14 @@ export default function Strategist() {
 
     <div className="chat">
       {!showHistory && (
-        <button className="btn chat-history-open" onClick={toggleHistory} title="Show saved chats">
-          <PanelLeftOpen size={15} /> Chats
+        <button className="btn chat-history-open" onClick={toggleHistory} title={t("Show saved chats")}>
+          <PanelLeftOpen size={15} /> {t("Chats")}
         </button>
       )}
       {staleWindow && (
         <div className="chat-window-note">
-          Saved chat from {new Date(chatMeta.createdAt).toLocaleDateString()} on <strong>{chatMeta.windowLabel}</strong>.
-          New answers use the current window (<strong>{data.windowLabel}</strong>).
+          {t("Saved chat from {date} on", { date: new Date(chatMeta.createdAt).toLocaleDateString(currentLang() === "fr" ? "fr-FR" : "en-US") })}{" "}
+          <strong>{t(chatMeta.windowLabel)}</strong>. {t("New answers use the current window")} (<strong>{t(data.windowLabel)}</strong>).
         </div>
       )}
       <div className="chat-scroll" ref={boxRef}>
@@ -299,17 +303,20 @@ export default function Strategist() {
             <span className="chat-avatar is-bot">
               <Bot size={20} />
             </span>
-            <h2>Your marketing engineer</h2>
+            <h2>{t("Your marketing engineer")}</h2>
             <p>
-              I can read {data?.campaigns?.length ?? 0} campaigns,{" "}
-              {data?.adsets?.length ?? 0} ad sets and {data?.ads?.length ?? 0} ads on{" "}
-              <strong>{data?.account?.name || accountId}</strong>, plus placement, device and
-              audience breakdowns and the audit. Ask me what to change.
+              {t("I can read {c} campaigns, {a} ad sets and {d} ads on", {
+                c: data?.campaigns?.length ?? 0,
+                a: data?.adsets?.length ?? 0,
+                d: data?.ads?.length ?? 0,
+              })}{" "}
+              <strong>{data?.account?.name || accountId}</strong>
+              {t(", plus placement, device and audience breakdowns and the audit. Ask me what to change.")}
             </p>
             <div className="chat-suggestions">
               {suggestions.map((s) => (
-                <button key={s} className="chip" onClick={() => send(s)}>
-                  {s}
+                <button key={s} className="chip" onClick={() => send(t(s))}>
+                  {t(s)}
                 </button>
               ))}
             </div>
@@ -324,10 +331,10 @@ export default function Strategist() {
             <div className="bubble">
               {m.role === "assistant" && m.tools?.length > 0 && (
                 <div className="tool-trail">
-                  {[...new Set(m.tools)].map((t) => (
-                    <span key={t} className="tool-chip">
+                  {[...new Set(m.tools)].map((tool) => (
+                    <span key={tool} className="tool-chip">
                       <Wrench size={11} />
-                      {TOOL_LABEL[t] || t}
+                      {t(TOOL_LABEL[tool] || tool)}
                     </span>
                   ))}
                 </div>
@@ -339,11 +346,11 @@ export default function Strategist() {
                 busy && (
                   <span className="chat-status">
                     <Loader size={14} className="spin" />
-                    {status || "Working"}…
+                    {t(status || "Working")}…
                   </span>
                 )
               )}
-              {m.error && <div className="chat-saved-error">This answer failed: {m.error}</div>}
+              {m.error && <div className="chat-saved-error">{t("This answer failed:")} {m.error}</div>}
             </div>
           </div>
         ))}
@@ -362,7 +369,7 @@ export default function Strategist() {
         <textarea
           className="composer-input"
           rows={1}
-          placeholder="Ask about campaigns, creatives, placements, budget…"
+          placeholder={t("Ask about campaigns, creatives, placements, budget…")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -373,7 +380,7 @@ export default function Strategist() {
           }}
         />
         {busy ? (
-          <button type="button" className="btn composer-btn" onClick={stop} title="Stop">
+          <button type="button" className="btn composer-btn" onClick={stop} title={t("Stop")}>
             <Square size={14} fill="currentColor" />
           </button>
         ) : (
@@ -381,7 +388,7 @@ export default function Strategist() {
             type="submit"
             className="btn btn-primary composer-btn"
             disabled={!input.trim()}
-            title="Send"
+            title={t("Send")}
           >
             <ArrowUp size={16} />
           </button>

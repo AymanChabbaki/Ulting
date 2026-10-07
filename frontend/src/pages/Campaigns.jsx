@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useAudit } from "../App.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import { count, decimal, money, percent, titleCase } from "../lib/format.js";
+import { useT } from "../lib/i18n.jsx";
 import { Image, Layers, Megaphone } from "lucide-react";
 
 const LEVEL_ICON = { campaigns: Megaphone, adsets: Layers, ads: Image };
@@ -33,6 +34,7 @@ const COLUMNS = [
 
 export default function Campaigns() {
   const { data } = useAudit();
+  const t = useT();
   const [level, setLevel] = useState("campaigns");
   const [status, setStatus] = useState("all");
   const [objective, setObjective] = useState("all");
@@ -110,38 +112,38 @@ export default function Campaigns() {
               className={`chip ${level === l.key ? "active" : ""}`}
               onClick={() => setLevel(l.key)}
             >
-              {l.label} {(data[l.key] || []).length}
+              {t(l.label)} {(data[l.key] || []).length}
             </button>
           ))}
         </div>
 
         <input
           className="input"
-          placeholder="Search by name…"
+          placeholder={t("Search by name…")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{ minWidth: 180, flex: 1 }}
         />
 
         <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="all">Any status</option>
-          <option value="ACTIVE">Active</option>
-          <option value="PAUSED">Paused</option>
-          <option value="ARCHIVED">Archived</option>
+          <option value="all">{t("Any status")}</option>
+          <option value="ACTIVE">{t("Active")}</option>
+          <option value="PAUSED">{t("Paused")}</option>
+          <option value="ARCHIVED">{t("Archived")}</option>
         </select>
 
         {level !== "ads" && (
           <select className="select" value={objective} onChange={(e) => setObjective(e.target.value)}>
             {objectives.map((o) => (
               <option key={o} value={o}>
-                {o === "all" ? "Any objective" : titleCase(o.replace("OUTCOME_", ""))}
+                {o === "all" ? t("Any objective") : t(titleCase(o.replace("OUTCOME_", "")))}
               </option>
             ))}
           </select>
         )}
 
         <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--text-muted)" }}>
-          Min spend
+          {t("Min spend")}
           <input
             className="input"
             type="number"
@@ -164,7 +166,7 @@ export default function Campaigns() {
                   className={c.align === "left" ? "" : "num"}
                   style={{ textAlign: c.align === "left" ? "left" : "right" }}
                 >
-                  {c.label}
+                  {t(c.label)}
                   {sort.key === c.key && <span style={{ marginLeft: 4 }}>{sort.dir === "asc" ? "↑" : "↓"}</span>}
                 </th>
               ))}
@@ -194,11 +196,11 @@ export default function Campaigns() {
                       </span>
                       <span className="cell-meta">
                         {row.objective
-                          ? titleCase(row.objective.replace("OUTCOME_", ""))
-                          : titleCase(row.status || "")}
+                          ? t(titleCase(row.objective.replace("OUTCOME_", "")))
+                          : t(titleCase(row.status || ""))}
                         {row.learningStage === "LEARNING_LIMITED" && (
                           <span style={{ color: "var(--serious)", fontWeight: 600 }}>
-                            {" "}· learning limited
+                            {" "}· {t("learning limited")}
                           </span>
                         )}
                       </span>
@@ -217,7 +219,7 @@ export default function Campaigns() {
                             ? "pill-good"
                             : "pill-neutral"
                       }`}
-                      title={median > 0 ? `Account median ${money(median, cur)}` : undefined}
+                      title={median > 0 ? `${t("Account median")} ${money(median, cur)}` : undefined}
                     >
                       {money(row.metrics.costPerResult, cur)}
                     </span>
@@ -237,7 +239,7 @@ export default function Campaigns() {
           {filtered.length > 0 && (
             <tfoot>
               <tr style={{ background: "var(--surface-2)", fontWeight: 600 }}>
-                <td>{filtered.length} rows</td>
+                <td>{t("{n} rows", { n: filtered.length })}</td>
                 <td className="num">{money(totals.spend, cur)}</td>
                 <td className="num">{count(totals.results)}</td>
                 <td className="num">
@@ -254,7 +256,7 @@ export default function Campaigns() {
             </tfoot>
           )}
         </table>
-        {filtered.length === 0 && <div className="empty">Nothing matches these filters.</div>}
+        {filtered.length === 0 && <div className="empty">{t("Nothing matches these filters.")}</div>}
       </div>
     </div>
   );

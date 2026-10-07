@@ -5,6 +5,7 @@ import { Check, ChevronsUpDown, Layers, Search } from "lucide-react";
 
 import { useAccounts } from "../App.jsx";
 import { fromMinor, money } from "../lib/format.js";
+import { useT } from "../lib/i18n.jsx";
 
 /**
  * Account switcher.
@@ -31,6 +32,7 @@ const STATUS_TONE = {
 
 export default function AccountSwitcher({ activeIds = [], search = "" }) {
   const { accounts, loading } = useAccounts();
+  const t = useT();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -73,8 +75,8 @@ export default function AccountSwitcher({ activeIds = [], search = "" }) {
   const current = accounts.filter((a) => activeIds.includes(a.id));
   const label =
     current.length > 1
-      ? `${current.length} accounts`
-      : current[0]?.name || (loading ? "Loading…" : "Select account");
+      ? t("{n} accounts", { n: current.length })
+      : current[0]?.name || (loading ? t("Loading…") : t("Select account"));
   const sub =
     current.length > 1
       ? current.map((a) => a.name).join(", ")
@@ -86,7 +88,7 @@ export default function AccountSwitcher({ activeIds = [], search = "" }) {
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button className="nav-item account-switch" aria-label="Switch ad account">
+        <button className="nav-item account-switch" aria-label={t("Switch ad account")}>
           <span className="nav-icon">
             {current.length > 1 ? <Layers size={18} /> : <ChevronsUpDown size={18} />}
           </span>
@@ -103,7 +105,7 @@ export default function AccountSwitcher({ activeIds = [], search = "" }) {
             <Search size={14} />
             <input
               className="acct-search-input"
-              placeholder="Search accounts…"
+              placeholder={t("Search accounts…")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               autoFocus
@@ -119,7 +121,7 @@ export default function AccountSwitcher({ activeIds = [], search = "" }) {
                   <button
                     className={`acct-check ${isChecked ? "on" : ""}`}
                     onClick={() => toggle(account.id)}
-                    aria-label={`${isChecked ? "Deselect" : "Select"} ${account.name}`}
+                    aria-label={`${isChecked ? t("Deselect") : t("Select")} ${account.name}`}
                     aria-pressed={isChecked}
                   >
                     {isChecked && <Check size={12} strokeWidth={3} />}
@@ -133,7 +135,7 @@ export default function AccountSwitcher({ activeIds = [], search = "" }) {
                         style={{
                           background: STATUS_TONE[account.account_status] || "var(--text-muted)",
                         }}
-                        title={`Status ${account.account_status}`}
+                        title={`${t("Status")} ${account.account_status}`}
                       />
                       {account.name}
                     </span>
@@ -148,20 +150,20 @@ export default function AccountSwitcher({ activeIds = [], search = "" }) {
                 </div>
               );
             })}
-            {!filtered.length && <div className="acct-empty">No accounts match.</div>}
+            {!filtered.length && <div className="acct-empty">{t("No accounts match.")}</div>}
           </div>
 
           <div className="acct-foot">
             <span className="acct-count">
-              {checked.length} selected
-              {checked.length > 1 && " · compared side by side"}
+              {t("{n} selected", { n: checked.length })}
+              {checked.length > 1 && ` · ${t("compared side by side")}`}
             </span>
             <button
               className="btn btn-primary"
               disabled={!checked.length || !changed}
               onClick={() => go(checked)}
             >
-              {checked.length > 1 ? `Compare ${checked.length}` : "Open"}
+              {checked.length > 1 ? t("Compare {n}", { n: checked.length }) : t("Open")}
             </button>
           </div>
         </Popover.Content>

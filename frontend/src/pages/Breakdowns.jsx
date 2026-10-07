@@ -4,6 +4,7 @@ import { api } from "../lib/api.js";
 import BarList from "../charts/BarList.jsx";
 import GroupedBars from "../charts/GroupedBars.jsx";
 import { count, money, percent, titleCase } from "../lib/format.js";
+import { useT } from "../lib/i18n.jsx";
 
 const CUTS = [
   { key: "placement", label: "Placement" },
@@ -24,6 +25,7 @@ const METRICS = [
 
 export default function Breakdowns() {
   const { accountId, window: win, data } = useAudit();
+  const t = useT();
   const [cut, setCut] = useState("placement");
   const [metric, setMetric] = useState("spend");
   const [state, setState] = useState({ loading: true });
@@ -83,7 +85,7 @@ export default function Breakdowns() {
               className={`chip ${cut === c.key ? "active" : ""}`}
               onClick={() => setCut(c.key)}
             >
-              {c.label}
+              {t(c.label)}
             </button>
           ))}
         </div>
@@ -95,7 +97,7 @@ export default function Breakdowns() {
         >
           {METRICS.map((m) => (
             <option key={m.key} value={m.key}>
-              {m.label}
+              {t(m.label)}
             </option>
           ))}
         </select>
@@ -103,69 +105,73 @@ export default function Breakdowns() {
 
       {state.error && (
         <div className="error-box">
-          <strong>Could not load this breakdown.</strong> {state.error.message}
+          <strong>{t("Could not load this breakdown.")}</strong> {state.error.message}
         </div>
       )}
 
       {state.loading ? (
-        <div className="card empty">Loading breakdown…</div>
+        <div className="card empty">{t("Loading breakdown…")}</div>
       ) : (
         <>
           {cut === "age_gender" && ageGender ? (
             <div className="card card-pad">
               <div className="card-head">
                 <span className="card-title">
-                  {activeMetric.label} by age and gender
+                  {t("{metric} by age and gender", { metric: t(activeMetric.label) })}
                 </span>
-                <span className="card-sub">{data?.window?.label ?? ""}</span>
+                <span className="card-sub">{t(data?.window?.label ?? "")}</span>
               </div>
               <GroupedBars
                 groups={ageGender}
                 series={[
-                  { key: "male", name: "Male", color: "var(--series-1)" },
-                  { key: "female", name: "Female", color: "var(--series-2)" },
+                  { key: "male", name: t("Male"), color: "var(--series-1)" },
+                  { key: "female", name: t("Female"), color: "var(--series-2)" },
                 ]}
                 formatValue={(v, o) =>
                   o?.axis
                     ? activeMetric.format(v, cur).replace(/\.\d+/, "")
                     : activeMetric.format(v, cur)
                 }
-                emptyMessage="No age/gender data in this window"
+                emptyMessage={t("No age/gender data in this window")}
               />
             </div>
           ) : (
             <div className="card card-pad">
               <div className="card-head">
                 <span className="card-title">
-                  {activeMetric.label} by {CUTS.find((c) => c.key === cut)?.label.toLowerCase()}
+                  {t("{metric} by {cut}", {
+                    metric: t(activeMetric.label),
+                    cut: t(CUTS.find((c) => c.key === cut)?.label || "").toLowerCase(),
+                  })}
                 </span>
-                <span className="card-sub">top {chartRows.length}</span>
+                <span className="card-sub">{t("top {n}", { n: chartRows.length })}</span>
               </div>
               <BarList
                 rows={chartRows}
                 valueKey={metric}
                 formatValue={(v) => activeMetric.format(v, cur)}
-                secondary={{ key: "spend", label: "Spend", format: (v) => money(v, cur) }}
+                secondary={{ key: "spend", label: t("Spend"), format: (v) => money(v, cur) }}
                 color={metric === "costPerResult" ? "var(--serious)" : "var(--series-1)"}
                 emphasisId={metric === "costPerResult" ? worst?.id : null}
-                emptyMessage="No data for this breakdown"
+                emptyMessage={t("No data for this breakdown")}
               />
             </div>
           )}
 
           {metric === "costPerResult" && best && worst && best.id !== worst.id && (
             <div className="card card-pad" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-              <strong style={{ color: "var(--text)" }}>{worst.key}</strong> costs{" "}
+              <strong style={{ color: "var(--text)" }}>{worst.key}</strong> {t("costs")}{" "}
               <strong className="tnum" style={{ color: "var(--serious)" }}>
                 {money(worst.costPerResult, cur)}
               </strong>{" "}
-              per result versus{" "}
+              {t("per result versus")}{" "}
               <strong className="tnum" style={{ color: "var(--good)" }}>
                 {money(best.costPerResult, cur)}
               </strong>{" "}
-              for <strong style={{ color: "var(--text)" }}>{best.key}</strong> —{" "}
-              {(worst.costPerResult / (best.costPerResult || 1)).toFixed(1)}x the cost for the same
-              outcome.
+              {t("for")} <strong style={{ color: "var(--text)" }}>{best.key}</strong> —{" "}
+              {t("{x}x the cost for the same outcome.", {
+                x: (worst.costPerResult / (best.costPerResult || 1)).toFixed(1),
+              })}
             </div>
           )}
 
@@ -173,11 +179,11 @@ export default function Breakdowns() {
             <table style={{ minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th className="no-sort">{titleCase(cut)}</th>
-                  <th className="no-sort num">Spend</th>
-                  <th className="no-sort num">Results</th>
-                  <th className="no-sort num">Cost/result</th>
-                  <th className="no-sort num">Impressions</th>
+                  <th className="no-sort">{t(CUTS.find((c) => c.key === cut)?.label || titleCase(cut))}</th>
+                  <th className="no-sort num">{t("Spend")}</th>
+                  <th className="no-sort num">{t("Results")}</th>
+                  <th className="no-sort num">{t("Cost/result")}</th>
+                  <th className="no-sort num">{t("Impressions")}</th>
                   <th className="no-sort num">CTR</th>
                   <th className="no-sort num">CPM</th>
                 </tr>
@@ -198,7 +204,7 @@ export default function Breakdowns() {
                 ))}
               </tbody>
             </table>
-            {rows.length === 0 && <div className="empty">No rows for this breakdown.</div>}
+            {rows.length === 0 && <div className="empty">{t("No rows for this breakdown.")}</div>}
           </div>
         </>
       )}

@@ -13,7 +13,8 @@ import {
 import { useAudit } from "../App.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import { windowQuery } from "../lib/api.js";
-import { count, money, percent } from "../lib/format.js";
+import { count, money, percent, titleCase } from "../lib/format.js";
+import { currentLang, useT } from "../lib/i18n.jsx";
 
 /**
  * Ad manager: the only screen in the app that writes to Meta.
@@ -25,6 +26,7 @@ import { count, money, percent } from "../lib/format.js";
  */
 export default function AdManager() {
   const { accountId, window: win, data, reload } = useAudit();
+  const t = useT();
 
   const [budget, setBudget] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -46,7 +48,7 @@ export default function AdManager() {
     fetch(`/api/ops/budget/${accountId}?${query}`, { credentials: "same-origin" })
       .then((r) => r.json().then((j) => (r.ok ? j : Promise.reject(new Error(j?.detail?.message)))))
       .then((b) => { setBudget(b); setError(null); })
-      .catch((c) => setError(c.message || "Could not load budgets"))
+      .catch((c) => setError(c.message || t("Could not load budgets")))
       .finally(() => setLoading(false));
   }, [accountId, query]);
 
@@ -144,10 +146,11 @@ export default function AdManager() {
       <div className="warn-box">
         <ShieldCheck size={16} />
         <span>
-          <strong>This page writes to your live ad account.</strong> Changes are staged and
-          previewed first — nothing is sent until you confirm. Budgets cannot be raised more
-          than {guard?.maxIncreaseMultiple ?? 5}× in one step or set below{" "}
-          {money(guard?.minDailyBudget ?? 1, cur)}/day. Every applied change is logged.
+          <strong>{t("This page writes to your live ad account.")}</strong>{" "}
+          {t("Changes are staged and previewed first — nothing is sent until you confirm. Budgets cannot be raised more than {x}× in one step or set below {min}/day. Every applied change is logged.", {
+            x: guard?.maxIncreaseMultiple ?? 5,
+            min: money(guard?.minDailyBudget ?? 1, cur),
+          })}
         </span>
       </div>
 
@@ -155,33 +158,33 @@ export default function AdManager() {
 
       <section className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}>
         <div className="kpi">
-          <div className="kpi-head"><span className="kpi-label">Active daily budget</span></div>
+          <div className="kpi-head"><span className="kpi-label">{t("Active daily budget")}</span></div>
           <div className="kpi-value-row">
             <span className="kpi-value">{money(budget?.activeDailyBudget || 0, cur)}</span>
           </div>
-          <div className="kpi-sub">across active campaigns</div>
+          <div className="kpi-sub">{t("across active campaigns")}</div>
         </div>
         <div className="kpi">
-          <div className="kpi-head"><span className="kpi-label">Spend this window</span></div>
+          <div className="kpi-head"><span className="kpi-label">{t("Spend this window")}</span></div>
           <div className="kpi-value-row">
             <span className="kpi-value">{money(budget?.accountSpend || 0, cur)}</span>
           </div>
         </div>
         <div className="kpi">
-          <div className="kpi-head"><span className="kpi-label">Staged changes</span></div>
+          <div className="kpi-head"><span className="kpi-label">{t("Staged changes")}</span></div>
           <div className="kpi-value-row">
             <span className="kpi-value">{changes.length}</span>
           </div>
-          <div className="kpi-sub">{plan ? "reviewed" : "not reviewed"}</div>
+          <div className="kpi-sub">{plan ? t("reviewed") : t("not reviewed")}</div>
         </div>
         <button className="kpi" onClick={openLog} style={{ cursor: "pointer", textAlign: "left" }}>
           <div className="kpi-head">
-            <span className="kpi-label">Change history</span>
+            <span className="kpi-label">{t("Change history")}</span>
             <span className="kpi-icon" style={{ "--tint": "var(--series-1)" }}>
               <History size={15} />
             </span>
           </div>
-          <div className="kpi-sub" style={{ marginTop: 8 }}>View everything this app has changed</div>
+          <div className="kpi-sub" style={{ marginTop: 8 }}>{t("View everything this app has changed")}</div>
         </button>
       </section>
 
@@ -189,13 +192,13 @@ export default function AdManager() {
         <table style={{ minWidth: 960 }}>
           <thead>
             <tr>
-              <th className="no-sort">Campaign / ad set</th>
-              <th className="no-sort num">Daily budget</th>
-              <th className="no-sort num">Spend</th>
-              <th className="no-sort num">Results</th>
-              <th className="no-sort num">Cost/result</th>
-              <th className="no-sort num">Share</th>
-              <th className="no-sort">Actions</th>
+              <th className="no-sort">{t("Campaign / ad set")}</th>
+              <th className="no-sort num">{t("Daily budget")}</th>
+              <th className="no-sort num">{t("Spend")}</th>
+              <th className="no-sort num">{t("Results")}</th>
+              <th className="no-sort num">{t("Cost/result")}</th>
+              <th className="no-sort num">{t("Share")}</th>
+              <th className="no-sort">{t("Actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -215,35 +218,35 @@ export default function AdManager() {
             ))}
           </tbody>
         </table>
-        {!budget?.campaigns?.length && <div className="empty">No campaigns in this account.</div>}
+        {!budget?.campaigns?.length && <div className="empty">{t("No campaigns in this account.")}</div>}
       </section>
 
       {changes.length > 0 && (
         <div className="ops-bar">
           <span>
-            <strong>{changes.length}</strong> change{changes.length === 1 ? "" : "s"} staged
+            <strong>{changes.length}</strong> {changes.length === 1 ? t("change staged") : t("changes staged")}
           </span>
           <button className="btn" onClick={() => { setStaged({}); setPlan(null); setResult(null); }}>
-            <RotateCcw size={14} /> Discard
+            <RotateCcw size={14} /> {t("Discard")}
           </button>
-          <button className="btn btn-primary" onClick={review}>Review changes</button>
+          <button className="btn btn-primary" onClick={review}>{t("Review changes")}</button>
         </div>
       )}
 
       {plan && (
         <section className="card card-pad">
           <div className="card-head">
-            <span className="card-title">Review — nothing has been sent yet</span>
+            <span className="card-title">{t("Review — nothing has been sent yet")}</span>
             <span className="card-sub">
-              {plan.actionable} to apply
-              {plan.noop > 0 && ` · ${plan.noop} already in that state`}
+              {t("{n} to apply", { n: plan.actionable })}
+              {plan.noop > 0 && ` · ${t("{n} already in that state", { n: plan.noop })}`}
             </span>
           </div>
 
           <div className="plan-list">
             {plan.items.map((item) => (
               <div key={`${item.id}-${item.action}`} className={`plan-item ${item.noop ? "is-noop" : ""}`}>
-                <span className="tag">{item.level}</span>
+                <span className="tag">{t(item.level)}</span>
                 <span className="plan-name">{item.name}</span>
                 <span className="plan-change">
                   <span className="plan-from">
@@ -254,14 +257,14 @@ export default function AdManager() {
                     {item.field === "daily_budget" ? money(item.to, cur) : item.to}
                   </span>
                 </span>
-                {item.noop && <span className="plan-noop">no change</span>}
+                {item.noop && <span className="plan-noop">{t("no change")}</span>}
               </div>
             ))}
           </div>
 
           <div className="studio-actions">
             <button className="btn" onClick={() => confirm(true)} disabled={applying}>
-              Validate with Meta (no change)
+              {t("Validate with Meta (no change)")}
             </button>
             <button
               className="btn btn-primary"
@@ -269,9 +272,9 @@ export default function AdManager() {
               disabled={applying || plan.actionable === 0}
             >
               <Check size={15} />
-              {applying ? "Applying…" : `Apply ${plan.actionable} change${plan.actionable === 1 ? "" : "s"}`}
+              {applying ? t("Applying…") : t(plan.actionable === 1 ? "Apply {n} change" : "Apply {n} changes", { n: plan.actionable })}
             </button>
-            <button className="btn" onClick={() => setPlan(null)} disabled={applying}>Cancel</button>
+            <button className="btn" onClick={() => setPlan(null)} disabled={applying}>{t("Cancel")}</button>
           </div>
         </section>
       )}
@@ -280,10 +283,10 @@ export default function AdManager() {
         <section className="card card-pad">
           <div className="card-head">
             <span className="card-title">
-              {result.dryRun ? "Validation result" : "Applied"}
+              {result.dryRun ? t("Validation result") : t("Applied")}
             </span>
             <span className="card-sub">
-              {result.applied} ok · {result.failed} failed · {result.skipped} skipped
+              {t("{a} ok · {f} failed · {s} skipped", { a: result.applied, f: result.failed, s: result.skipped })}
             </span>
           </div>
           {result.results.map((r) => (
@@ -291,7 +294,7 @@ export default function AdManager() {
               {r.status === "failed" ? <AlertTriangle size={14} color="var(--critical)" />
                 : <Check size={14} color="var(--good)" />}
               <span className="plan-name">{r.name}</span>
-              <span className="cell-meta">{r.status}{r.error ? ` — ${r.error}` : ""}</span>
+              <span className="cell-meta">{t(r.status)}{r.error ? ` — ${r.error}` : ""}</span>
             </div>
           ))}
         </section>
@@ -300,17 +303,17 @@ export default function AdManager() {
       {logOpen && (
         <section className="card card-pad">
           <div className="card-head">
-            <span className="card-title">Change history</span>
+            <span className="card-title">{t("Change history")}</span>
             <button className="btn" onClick={() => setLogOpen(false)}><X size={14} /></button>
           </div>
           {log.length === 0 ? (
-            <div className="empty">Nothing has been changed through this app yet.</div>
+            <div className="empty">{t("Nothing has been changed through this app yet.")}</div>
           ) : (
             <div className="plan-list">
               {log.map((e, i) => (
                 <div key={i} className="plan-item">
-                  <span className="cell-meta">{new Date(e.at).toLocaleString()}</span>
-                  <span className="tag">{e.level}</span>
+                  <span className="cell-meta">{new Date(e.at).toLocaleString(currentLang() === "fr" ? "fr-FR" : "en-US")}</span>
+                  <span className="tag">{t(e.level)}</span>
                   <span className="plan-name">{e.name}</span>
                   <span className="plan-change">
                     <span className="plan-from">{String(e.from)}</span>
@@ -318,7 +321,7 @@ export default function AdManager() {
                     <span className="plan-to">{String(e.to)}</span>
                   </span>
                   <span className={`cell-meta ${e.result === "failed" ? "is-bad" : ""}`}>
-                    {e.result}{e.dryRun ? " (dry run)" : ""} · {e.user}
+                    {t(e.result)}{e.dryRun ? ` (${t("dry run")})` : ""} · {e.user}
                   </span>
                 </div>
               ))}
@@ -331,6 +334,7 @@ export default function AdManager() {
 }
 
 function Row({ row, cur, staged, onStage, onUnstage, expanded, onToggle, childRows, stagedMap }) {
+  const t = useT();
   const paused = row.status !== "ACTIVE";
   return (
     <>
@@ -338,15 +342,15 @@ function Row({ row, cur, staged, onStage, onUnstage, expanded, onToggle, childRo
         <td style={{ maxWidth: 340 }}>
           <div className="cell-lead">
             {childRows?.length > 0 && (
-              <button className="icon-btn" onClick={onToggle} aria-label="Toggle ad sets">
+              <button className="icon-btn" onClick={onToggle} aria-label={t("Toggle ad sets")}>
                 {expanded ? "−" : "+"}
               </button>
             )}
             <span className="cell-text">
               <span className="cell-name">{row.name}</span>
               <span className="cell-meta">
-                {row.status}
-                {childRows?.length ? ` · ${childRows.length} ad sets` : ""}
+                {t(titleCase(row.status || ""))}
+                {childRows?.length ? ` · ${t("{n} ad sets", { n: childRows.length })}` : ""}
               </span>
             </span>
           </div>
@@ -370,10 +374,10 @@ function Row({ row, cur, staged, onStage, onUnstage, expanded, onToggle, childRo
               }
             >
               {paused ? <Play size={13} /> : <Pause size={13} />}
-              {paused ? "Resume" : "Pause"}
+              {paused ? t("Resume") : t("Pause")}
             </button>
             {staged && (
-              <button className="icon-btn" onClick={() => onUnstage(row.id)} title="Unstage">
+              <button className="icon-btn" onClick={() => onUnstage(row.id)} title={t("Unstage")}>
                 <X size={13} />
               </button>
             )}
@@ -388,9 +392,9 @@ function Row({ row, cur, staged, onStage, onUnstage, expanded, onToggle, childRo
               <span className="cell-text">
                 <span className="cell-name">{child.name}</span>
                 <span className="cell-meta">
-                  {child.status}
+                  {t(titleCase(child.status || ""))}
                   {child.learningStage === "LEARNING_LIMITED" && (
-                    <span style={{ color: "var(--serious)" }}> · learning limited</span>
+                    <span style={{ color: "var(--serious)" }}> · {t("learning limited")}</span>
                   )}
                 </span>
               </span>
@@ -420,11 +424,12 @@ function Row({ row, cur, staged, onStage, onUnstage, expanded, onToggle, childRo
 }
 
 function BudgetCell({ row, cur, staged, onStage }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(row.dailyBudget ?? "");
 
   if (row.dailyBudget == null) {
-    return <span className="cell-meta">{row.lifetimeBudget ? "lifetime" : "—"}</span>;
+    return <span className="cell-meta">{row.lifetimeBudget ? t("lifetime") : "—"}</span>;
   }
 
   if (staged?.action === "set_daily_budget") {

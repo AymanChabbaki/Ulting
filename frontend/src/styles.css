@@ -1676,3 +1676,17 @@ tr.is-child td { background: var(--surface-2); }
 .export-menu span { display: grid; gap: 1px; }
 .export-menu strong { font-size: 13px; }
 .export-menu small { font-size: 11.5px; color: var(--text-muted); }
+
+/* EN | FR language switch */
+.lang-switch {
+  display: inline-flex; padding: 2px; border-radius: 8px;
+  background: var(--surface-sunken); border: 1px solid var(--border);
+}
+.lang-switch button {
+  border: 0; background: transparent; cursor: pointer; padding: 3px 8px; border-radius: 6px;
+  font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--text-muted);
+}
+.lang-switch button.active { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+.user-row .lang-switch { margin-left: auto; }
+.login-lang { margin-top: 10px; }
+.is-collapsed .user-row .lang-switch { display: none; }

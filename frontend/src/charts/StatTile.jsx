@@ -1,5 +1,6 @@
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { tr } from "../lib/i18n.jsx";
 
 /**
  * KPI tile: label + tinted icon, hero value, delta pill, comparison line, spark.
@@ -44,7 +45,7 @@ export default function StatTile({
         {delta && !delta.flat && (
           <span
             className={`kpi-delta ${delta.good ? "is-good" : "is-bad"}`}
-            title="vs previous period of equal length"
+            title={tr("vs previous period of equal length")}
           >
             <Arrow size={12} strokeWidth={2.4} />
             {delta.label.replace("+", "")}

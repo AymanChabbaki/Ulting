@@ -1,6 +1,11 @@
+import { currentLang } from "./i18n.jsx";
+
+// Number formats follow the interface language: 1,234.50 vs 1 234,50.
+const locale = () => (currentLang() === "fr" ? "fr-FR" : "en-US");
+
 export function money(value, currency = "USD", { compact = false } = {}) {
   const n = Number(value) || 0;
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat(locale(), {
     style: "currency",
     currency,
     notation: compact && Math.abs(n) >= 10000 ? "compact" : "standard",
@@ -10,14 +15,16 @@ export function money(value, currency = "USD", { compact = false } = {}) {
 
 export function count(value, { compact = false } = {}) {
   const n = Number(value) || 0;
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat(locale(), {
     notation: compact && Math.abs(n) >= 10000 ? "compact" : "standard",
     maximumFractionDigits: 0,
   }).format(n);
 }
 
-export const percent = (v, d = 2) => `${(Number(v) || 0).toFixed(d)}%`;
-export const decimal = (v, d = 2) => (Number(v) || 0).toFixed(d);
+const fixed = (v, d) =>
+  new Intl.NumberFormat(locale(), { minimumFractionDigits: d, maximumFractionDigits: d }).format(Number(v) || 0);
+export const percent = (v, d = 2) => (currentLang() === "fr" ? `${fixed(v, d)} %` : `${fixed(v, d)}%`);
+export const decimal = (v, d = 2) => fixed(v, d);
 
 /** Meta returns budgets and lifetime spend in minor units (cents/fils). */
 export const fromMinor = (v) => (Number(v) || 0) / 100;

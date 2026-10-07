@@ -1,5 +1,6 @@
 import { ChartEmpty } from "./primitives.jsx";
 import { count, percent } from "../lib/format.js";
+import { useT } from "../lib/i18n.jsx";
 
 /**
  * Conversion funnel: impressions -> link clicks -> landing page views -> results.
@@ -18,6 +19,7 @@ import { count, percent } from "../lib/format.js";
 const RAMP = ["var(--seq-250)", "var(--seq-350)", "var(--seq-450)", "var(--seq-550)"];
 
 export default function Funnel({ stages, emptyMessage }) {
+  const t = useT();
   const rows = (stages || []).filter((s) => Number.isFinite(Number(s.value)));
   if (!rows.length || Number(rows[0].value) <= 0) {
     return <ChartEmpty message={emptyMessage} />;
@@ -37,14 +39,14 @@ export default function Funnel({ stages, emptyMessage }) {
           <div
             className="funnel-stage"
             key={stage.label}
-            title={`${stage.label}: ${count(value)} (${percent(share, 1)} of ${rows[0].label.toLowerCase()})`}
+            title={`${stage.label}: ${count(value)} (${t("{pct} of {what}", { pct: percent(share, 1), what: rows[0].label.toLowerCase() })})`}
           >
             <div className="funnel-head">
               <span className="funnel-label">{stage.label}</span>
               <span className="funnel-nums">
                 {stepRate !== null && (
                   <span className={`funnel-rate ${stepRate < 60 ? "is-low" : ""}`}>
-                    {percent(stepRate, 0)} of previous
+                    {t("{pct} of previous", { pct: percent(stepRate, 0) })}
                   </span>
                 )}
                 <span className="funnel-value">{count(value)}</span>

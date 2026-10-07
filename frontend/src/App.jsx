@@ -15,6 +15,7 @@ import Shell from "./layout/Shell.jsx";
 import Login from "./pages/Login.jsx";
 import Accounts from "./pages/Accounts.jsx";
 import Skeleton from "./components/Skeleton.jsx";
+import { useT } from "./lib/i18n.jsx";
 
 // Split per route so the chart bundle is fetched only once a charting page is
 // actually opened -- login and the account picker never pay for it.
@@ -206,6 +207,7 @@ function Lazy({ children }) {
 }
 
 export default function App() {
+  const t = useT();
   const [user, setUser] = useState(undefined); // undefined = still checking
 
   useEffect(() => {
@@ -230,7 +232,7 @@ export default function App() {
   if (user === undefined) {
     return (
       <div className="login-wrap">
-        <div style={{ color: "var(--text-muted)" }}>Loading…</div>
+        <div style={{ color: "var(--text-muted)" }}>{t("Loading…")}</div>
       </div>
     );
   }

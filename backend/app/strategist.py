@@ -526,6 +526,7 @@ async def stream_reply(
     snapshot: dict,
     audit: dict,
     breakdown_fetcher,
+    lang: str = "en",
 ) -> AsyncIterator[dict]:
     """Run one agent turn, yielding UI events until the model stops calling tools.
 
@@ -543,6 +544,12 @@ async def stream_reply(
             "role": "system",
             "content": f"Account context:\n{_context_header(snapshot, audit)}",
         },
+        # The interface language. Tool data stays English; the answer does not.
+        *([{"role": "system", "content": (
+            "Answer in French (professional Moroccan business register, vouvoiement), "
+            "whatever language the account data or tool results are in. Keep campaign "
+            "and ad names exactly as they are."
+        )}] if lang == "fr" else []),
         *history,
     ]
 

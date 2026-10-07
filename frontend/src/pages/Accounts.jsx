@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useSession } from "../App.jsx";
 import { fromMinor, money } from "../lib/format.js";
+import { LangSwitch, useT } from "../lib/i18n.jsx";
 
 const STATUS = {
   1: { label: "Active", color: "var(--good)" },
@@ -15,6 +16,7 @@ const STATUS = {
 };
 
 export default function Accounts() {
+  const t = useT();
   const [state, setState] = useState({ loading: true });
   const navigate = useNavigate();
   const { user, signOut } = useSession();
@@ -37,20 +39,21 @@ export default function Accounts() {
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <img src="/ulting-mark.png" alt="" style={{ width: 40, height: 40, objectFit: "contain" }} />
           <div>
-            <h1 style={{ fontSize: 20 }}>Ad accounts</h1>
+            <h1 style={{ fontSize: 20 }}>{t("Ad accounts")}</h1>
             <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-              Pick an account to audit and analyse.
+              {t("Pick an account to audit and analyse.")}
             </p>
           </div>
         </div>
         <div style={{ textAlign: "right", fontSize: 12, color: "var(--text-muted)" }}>
-          <div>{user}</div>
+          <LangSwitch />
+          <div style={{ marginTop: 8 }}>{user}</div>
           <button
             className="btn"
             style={{ padding: "3px 9px", fontSize: 12, marginTop: 6 }}
             onClick={signOut}
           >
-            Sign out
+            {t("Sign out")}
           </button>
         </div>
       </header>
@@ -61,23 +64,23 @@ export default function Accounts() {
           style={{ marginTop: 22, display: "flex", gap: 20, flexWrap: "wrap", fontSize: 13 }}
         >
           <span style={{ color: "var(--text-muted)" }}>
-            App <strong style={{ color: "var(--text)" }}>{state.token.appName}</strong>
+            {t("App")} <strong style={{ color: "var(--text)" }}>{state.token.appName}</strong>
           </span>
           {daysLeft != null && (
             <span style={{ color: "var(--text-muted)" }}>
-              Token expires in{" "}
+              {t("Token expires in")}{" "}
               <strong style={{ color: daysLeft < 7 ? "var(--critical)" : "var(--text)" }}>
-                {daysLeft} days
+                {t("{n} days", { n: daysLeft })}
               </strong>
             </span>
           )}
-          <span style={{ color: "var(--text-muted)" }}>{state.token.scopes?.length} scopes</span>
+          <span style={{ color: "var(--text-muted)" }}>{t("{n} scopes", { n: state.token.scopes?.length })}</span>
         </div>
       )}
 
       {state.error && (
         <div className="error-box" style={{ marginTop: 22 }}>
-          <strong>Could not reach the Marketing API.</strong> {state.error.message}
+          <strong>{t("Could not reach the Marketing API.")}</strong> {state.error.message}
         </div>
       )}
 
@@ -89,7 +92,7 @@ export default function Accounts() {
 
         {(state.accounts || []).map((account) => {
           const status = STATUS[account.account_status] || {
-            label: `Status ${account.account_status}`,
+            label: `${t("Status")} ${account.account_status}`,
             color: "var(--text-muted)",
           };
           return (
@@ -121,19 +124,19 @@ export default function Accounts() {
                     }}
                   >
                     <span className="dot" style={{ background: status.color }} />
-                    {status.label}
+                    {t(status.label)}
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
                   {account.id}
-                  {account.business ? ` · ${account.business.name}` : " · no business portfolio"}
+                  {account.business ? ` · ${account.business.name}` : ` · ${t("no business portfolio")}`}
                 </div>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div className="tnum" style={{ fontWeight: 600 }}>
                   {money(fromMinor(account.amount_spent), account.currency, { compact: true })}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>lifetime spend</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("lifetime spend")}</div>
               </div>
             </button>
           );
